@@ -1,2 +1,2 @@
-# -binanceBot
+# binanceBot
 Make profits, limit losses 
