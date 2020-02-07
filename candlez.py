@@ -9,20 +9,31 @@ import os
 symbol_ccxt = 'BNB/USDT'
 symbol_unicorn = "bnbusdt"
 
+
 change24hr = None
 change5min = None
 change1hour = None #WORKS
 change1min = None
 change1min_PREV = None
 
+####TEST FOR CONDITIONAL
+first_time = True
+
 price = None #works
+in_order = False
+a = 1 #Time coefficient #! Lower -> Faster   Higher -> Slower
+
+total_profit = 0
+fees = 0
+
+
+
+
 
 exchange = ccxt.binance(
     {'enableRateLimit': True})  # this option enables the built-in rate limiter (no ip ban)
 
-
-
-def stream():
+def stream(): #streams 24hour ticker
 
     while True:
         oldest_stream_data_from_stream_buffer = binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
@@ -33,9 +44,9 @@ def stream():
             if(stream_data['event_type']=="24hrTicker"):
             #set 24hr change to the value there
                 global change24hr
-                change24hr=stream_data['data'][0]['price_change_percent'] ## TODO: Change this
+                change24hr=float(stream_data['data'][0]['price_change_percent'])
 
-            time.sleep(1/2)
+            time.sleep(a*(1/2))
 
 def stream_price():
 
@@ -51,7 +62,7 @@ def stream_price():
             # pprint.pprint(unicorn_fied_stream_data)
             price = float(unicorn_fied_stream_data["price"])
             #print(price)
-            time.sleep(1/2)
+            time.sleep(a*(1/2))
 
 
 def stream_hour_candles(): #WORKS
@@ -62,7 +73,7 @@ def stream_hour_candles(): #WORKS
 
         close = price
         change1hour = ((close - open) / open) * 100
-        time.sleep(1/2)
+        time.sleep(a*(1/2))
 
 def stream_minute_candles():
     while(1):
@@ -77,7 +88,7 @@ def stream_minute_candles():
         close= price
         change1min = ((close - close_prev) / close_prev) * 100
 
-        time.sleep(1/2)
+        time.sleep(a*(1/2))
 
 def stream_5min_candle():
     while(1):
@@ -87,8 +98,57 @@ def stream_5min_candle():
 
         close = price
         change5min = ((close - open) / open) * 100
-        time.sleep(1/2)
+        time.sleep(a*(1/2))
 
+def purchase():
+    global in_order
+    in_order=True
+
+    #submit best bid
+    #if gotten, set purchase price
+    #for now we'll use the price as purchase price
+    purchase_price = price #TODO make purchase price the actual one
+    maintain(purchase_price) #TODO send tradeID as well
+    return
+
+def sell():
+    global in_order
+    in_order=False
+    return price #TODO actual sell price
+
+def maintain(purchase_price):
+    fake_attempts = open("fake_attempts.txt", 'a')
+    Thresh = purchase_price - (0.015 / 100) * purchase_price
+    Goal = purchase_price + (0.02 / 100) * purchase_price
+    sell_price = None
+    i = 0
+
+    while(in_order):
+        if(price>=Goal):
+            if(i==0):
+                Thresh = purchase_price
+                Goal = price + (0.02 / 100) * price
+                i+=1
+            elif(i>0):
+                Thresh = price - (0.02 / 100) * price
+                Goal = price + (0.02 / 100) * price
+                i+=1
+            print("GOAL")
+        if(price<Thresh):
+            print("SELL") #TODO make sell() function
+            sell_price=sell()
+
+        #print(Thresh)
+        time.sleep((1/4)*a)
+
+    profit = sell_price-purchase_price
+    global total_profit
+    total_profit += profit
+    print(profit)
+    s =""
+    s = str(time.time()) + " " + str(purchase_price) + str(sell_price) + " " + str(profit)
+    fake_attempts.write(s)
+    fake_attempts.close()
 
 #24hr change
 #1hr change
@@ -116,14 +176,38 @@ time.sleep(2) #let the thread start
 
 
 while(1):
-    print("Change1Min:", change1min)
-    print("Change1Min_Prev:", change1min_PREV)
-    print("24Hr:",change24hr)
-    print("5min:",change5min)
+    # print("Change1Min:", change1min)
+    # print("Change1Min_Prev:", change1min_PREV)
+    # print("24Hr:",change24hr)
+    # print("5min:",change5min)
 
     conditional = (change1min_PREV>=0.04) and (change1min>=0.07) and (change5min>=0.22) and (change1hour>=0.3) and (change24hr>=4)
     print(conditional)
-       
-    time.sleep(1/2)
+    # if(conditional and not in_order):
+    #     purchase()
 
-    os.system('cls' if os.name == 'nt' else 'clear') #clears screen
+    ### !! TEST ###+---
+    if(not in_order):
+        print("PURCHASE")
+        purchase()
+
+    if(conditional and not in_order and  first_time):
+        purchase()
+        s = str(time.time()) + " " + str(conditional)
+        doc = open("log.txt", 'a')
+        doc.write(s)
+        doc.close()
+
+
+    print("change1min_PREV>=0.04",change1min_PREV>=0.04)
+    print("change1min>=0.07",change1min>=0.07)
+    print("change5min>=0.22",change5min>=0.22)
+    print("change1hour>=0.3",change1hour>=0.3)
+    print("change24hr>=4",change24hr>=4)
+    print("TOTAL PROFITS -> ", total_profit)
+
+    ### !! TEST ###+---
+
+    time.sleep(a*(1/2))
+    #os.system('cls' if os.name == 'nt' else 'clear') #clears screen
+

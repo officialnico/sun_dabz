@@ -1,0 +1,3 @@
+unicorn-binance-websocket-api==1.9.1
+unicorn-fy==0.3.1
+
