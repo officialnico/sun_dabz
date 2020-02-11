@@ -5,10 +5,16 @@ from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import 
 from unicorn_fy.unicorn_fy import UnicornFy
 import threading
 import os
+import datetime
+import sys
+
 
 symbol_ccxt = 'BNB/USDT'
 symbol_unicorn = "bnbusdt"
 
+##TEST coin
+symbol_ccxt = 'WRX/BTC'
+symbol_unicorn = "wrxbtc"
 
 change24hr = None
 change5min = None
@@ -21,14 +27,11 @@ first_time = True
 
 price = None #works
 in_order = False
-a = 1 #Time coefficient #! Lower -> Faster   Higher -> Slower
+a = 2 #Time coefficient #! Lower -> Faster   Higher -> Slower
+
 
 total_profit = 0
 fees = 0
-
-
-
-
 
 exchange = ccxt.binance(
     {'enableRateLimit': True})  # this option enables the built-in rate limiter (no ip ban)
@@ -100,6 +103,23 @@ def stream_5min_candle():
         change5min = ((close - open) / open) * 100
         time.sleep(a*(1/2))
 
+def streamer_boolean():
+    while(1):
+        print("change1min_PREV>=0.04",change1min_PREV>=0.04)
+        print("change1min>=0.07",change1min>=0.07)
+        print("change5min>=0.22",change5min>=0.22)
+        print("change1hour>=0.3",change1hour>=0.3)
+        print("change24hr>=4",change24hr>=4)
+
+def restart(): #works
+    os.execl(sys.executable, sys.executable, *sys.argv)
+
+def printTime():
+    now = datetime.datetime.now()
+    s=now.strftime("%Y-%m-%d %H:%M:%S")
+    print(s)
+    return s
+
 def purchase():
     global in_order
     in_order=True
@@ -109,6 +129,8 @@ def purchase():
     #for now we'll use the price as purchase price
     purchase_price = price #TODO make purchase price the actual one
     maintain(purchase_price) #TODO send tradeID as well
+    printTime()
+
     return
 
 def sell():
@@ -117,6 +139,8 @@ def sell():
     return price #TODO actual sell price
 
 def maintain(purchase_price):
+    global a
+    a=1
     fake_attempts = open("fake_attempts.txt", 'a')
     Thresh = purchase_price - (0.015 / 100) * purchase_price
     Goal = purchase_price + (0.02 / 100) * purchase_price
@@ -133,10 +157,11 @@ def maintain(purchase_price):
                 Thresh = price - (0.02 / 100) * price
                 Goal = price + (0.02 / 100) * price
                 i+=1
-            print("GOAL")
-        if(price<Thresh):
-            print("SELL") #TODO make sell() function
+            print("GOAL", round(price,5))
+        if(price<Thresh and (price-purchase_price)>0):
+            print("SELL", round(price,5)) #TODO make sell() function
             sell_price=sell()
+
 
         #print(Thresh)
         time.sleep((1/4)*a)
@@ -146,21 +171,43 @@ def maintain(purchase_price):
     total_profit += profit
     print(profit)
     s =""
-    s = str(time.time()) + " " + str(purchase_price) + str(sell_price) + " " + str(profit)
+    s = printTime() + " " + str(purchase_price) + str(sell_price) + " " + str(profit)  + "\n"
     fake_attempts.write(s)
     fake_attempts.close()
+    print("TOTAL PROFITS -> ", total_profit)
+    a=2
 
-#24hr change
-#1hr change
-#1min change
-#1min prev change
+# if(len(sys.argv)>0): #take custom coin
+#      symbol_ccxt=sys.argv[0]
+#     s=symbol_ccxt
+#     s=s.replace('/', "")
+#     s=s.lower()
+#     symbol_unicorn=s
+dir_path = os.path.dirname(os.path.realpath(__file__))
+print(dir_path)
 
-price = exchange.fetchOHLCV(symbol_ccxt, timeframe='1m', limit=1)[0][4]
+if(os.name == 'nt'):
+    slash = '\\'
+    python_name = "py"
+    cmd = python_name
+else:
+    slash = '/'
+    python_name = "python3"
+    cmd = python_name + " " + dir_path + slash + "boolenStream.py"
 
-binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")
+
+#print(cmd)
+#os.system(cmd)
+
+printTime()
+print(symbol_ccxt)
+
+price = exchange.fetchOHLCV(symbol_ccxt, timeframe='1m', limit=1)[0][4] #initial price
+
+binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com") #websocket connection
 binance_websocket_api_manager.create_stream(["ticker","trade"], [symbol_unicorn])
 t1 = threading.Thread(target=stream, name="unicorn_stream")
-t1.start()
+t1.start() #start price stream thread
 
 min_candles_Thread = threading.Thread(target=stream_minute_candles)
 hr_candles_Thread = threading.Thread(target=stream_hour_candles)
@@ -172,42 +219,33 @@ min5_candles_Thread.start()
 stream_price_Thread.start()
 min_candles_Thread.start()
 hr_candles_Thread.start()
-time.sleep(2) #let the thread start
+time.sleep(2) #let the thread load
 
+doc = open("log.txt", 'a')
+doc.write("-"*23)
+doc.close()
 
 while(1):
-    # print("Change1Min:", change1min)
-    # print("Change1Min_Prev:", change1min_PREV)
-    # print("24Hr:",change24hr)
-    # print("5min:",change5min)
 
     conditional = (change1min_PREV>=0.04) and (change1min>=0.07) and (change5min>=0.22) and (change1hour>=0.3) and (change24hr>=4)
-    print(conditional)
-    # if(conditional and not in_order):
-    #     purchase()
 
-    ### !! TEST ###+---
-    if(not in_order):
+    if(not in_order and conditional):
         print("PURCHASE")
+        print(change1min_PREV>=0.04,change1min>=0.07,change5min>=0.22,change1hour>=0.3,change24hr>=4)
+        logLine = printTime() + " " + str(conditional) + "\n"
         purchase()
-
-    if(conditional and not in_order and  first_time):
-        purchase()
-        s = str(time.time()) + " " + str(conditional)
         doc = open("log.txt", 'a')
-        doc.write(s)
+        doc.write(logLine)
         doc.close()
 
+    # print("change1min_PREV>=0.04",change1min_PREV>=0.04)
+    # print("change1min>=0.07",change1min>=0.07)
+    # print("change5min>=0.22",change5min>=0.22)
+    # print("change1hour>=0.3",change1hour>=0.3)
+    # print("change24hr>=4",change24hr>=4)
 
-    print("change1min_PREV>=0.04",change1min_PREV>=0.04)
-    print("change1min>=0.07",change1min>=0.07)
-    print("change5min>=0.22",change5min>=0.22)
-    print("change1hour>=0.3",change1hour>=0.3)
-    print("change24hr>=4",change24hr>=4)
-    print("TOTAL PROFITS -> ", total_profit)
 
     ### !! TEST ###+---
 
     time.sleep(a*(1/2))
     #os.system('cls' if os.name == 'nt' else 'clear') #clears screen
-
