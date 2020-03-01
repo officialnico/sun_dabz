@@ -1,4 +1,4 @@
-#TODO Time coefficient
+#TODO accurate bid ask prices
 import ccxt
 import time
 import pprint
@@ -18,11 +18,27 @@ class Manager:
         self.in_order = in_order
         self.a = 1
 
-        box_list = list()
-        for i in symbol_list:
-            box_list.append(Box(i))
+    def run(self):
+        #self.b = Box("BNB/BTC")
+        time.sleep(6)
 
-        self.box_list = box_list
+        box_list = list()
+        b = Box("BNB/BTC")
+
+        b.run()
+
+        time.sleep(8)
+
+        c = Box("ETH/BTC")
+        c.run()
+
+        #box_list.append(b)
+        #box_list.append(Box(self.symbol_list[0]))
+        #
+        # for x in range(0, len(symbol_list)):
+        #     print(x)
+        #     box_list.append(Box(symbol_list[x]))
+        #     time.sleep(5)
 
     #SuperClass Variables: a (time coefficient), in_order, box_list
     def set_in_order(self, bool):
@@ -42,11 +58,12 @@ class Manager:
 
 class Box(Manager):
     def __init__(self, symbol_ccxt):
+        super().__init__()
 
         #SuperClass Variables Temporary Placeholders #TODO: Inherit these variables from parent class
-        self.a = Manager.get_a()
-        self.in_order = Manager.get_in_order()
-        self.exchange = Manager.exchange #All boxes connect to this exchange object for rate limiter
+        self.a = super().get_a()
+        self.in_order = super().get_in_order()
+        self.exchange = super().exchange #All boxes connect to this exchange object for rate limiter
 
         #symbols (different ones for CCXT API and Unicorn websocket API)
         self.symbol_ccxt = symbol_ccxt
@@ -72,20 +89,6 @@ class Box(Manager):
         self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle)
         self.main_Thread = threading.Thread(target=self.main) #Main Thread
 
-        #Start Streams
-        self.t1.start()
-        self.stream_price_Thread.start()
-        time.sleep(3)
-        self.min_candles_Thread.start()
-        self.hr_candles_Thread.start()
-        self.min5_candles_Thread.start()
-        time.sleep(4.2) #Crucial, allows for loading of streams
-        self.main_Thread.start()
-
-        #Display Initiation
-        self.printTime()
-        print(symbol_ccxt)
-
     #Streams
     def stream(self):  # streams 24hour ticker
 
@@ -99,7 +102,7 @@ class Box(Manager):
                     # set 24hr change to the value there
                     self.change24hr = float(stream_data['data'][0]['price_change_percent'])
 
-                time.sleep(Manager.get_a() * (1 / 2))
+            time.sleep(super().get_a() * (1 / 2))
 
     def stream_price(self):
 
@@ -113,7 +116,7 @@ class Box(Manager):
                 unicorn_fied_stream_data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
                 # pprint.pprint(unicorn_fied_stream_data)
                 self.price = float(unicorn_fied_stream_data["price"])
-                time.sleep(Manager.get_a() * (1 / 2))
+            time.sleep(super().get_a() * (1 / 2))
 
     def stream_hour_candles(self):
         while (1):
@@ -121,8 +124,14 @@ class Box(Manager):
             open = data_hour[0][4]
             close = self.price
 
+            if(close is None):
+                time.sleep(4)
+                close = self.price
+                if(close is None):
+                    print("Price is None At line 147")
+                    restart()
             self.change1hour = ((close - open) / open) * 100
-            time.sleep(Manager.get_a() * (1 / 2))
+            time.sleep(super().get_a() * (1 / 2))
 
     def stream_minute_candles(self):
         while (1):
@@ -134,7 +143,7 @@ class Box(Manager):
             close = self.price
             self.change1min = ((close - close_prev) / close_prev) * 100
 
-            time.sleep(Manager.get_a() * (1 / 2))
+            time.sleep(super().get_a() * (1 / 2))
 
     def stream_5min_candle(self):
         while (1):
@@ -142,8 +151,9 @@ class Box(Manager):
             open = data_hour[0][4]
 
             close = self.price
+            #print(self.t1.is_alive()) #TODO: Remove test
             self.change5min = ((close - open) / open) * 100
-            time.sleep(Manager.get_a() * (1 / 2))
+            time.sleep(super().get_a() * (1 / 2))
 
     #Functions
     def printBools(self): #TODO Remove later
@@ -162,7 +172,7 @@ class Box(Manager):
             else:
                 print("change24hr>=4", self.change24hr >= 4, round(self.change24hr, 3), "%")
 
-            time.sleep(1*Manager.get_a())
+            time.sleep(1*super().get_a())
             # clearScreen()
 
     def ccxtToUnicorn(self, s):
@@ -170,32 +180,54 @@ class Box(Manager):
         s = s.lower()
         return s
 
-    def printTime(self):
+    def printTime(self, print=True):
         now = datetime.datetime.now()
         s = now.strftime("%Y-%m-%d %H:%M:%S")
-        print(s)
+        if print==True: print(s)
         return s
 
-    #Main loop
+    def restart(self):  # works
+        os.execl(sys.executable, sys.executable, *sys.argv)
+
+    #Main Functions
     def main(self):
+
+        #Display Initiation
+
+        print(self.symbol_ccxt, self.printTime(print=False))
+
+        time.sleep(4) #allow price loading
+
         while (1):
 
             conditional = (self.change1min_PREV >= 0.04) and (self.change1min >= 0.07) and (self.change5min >= 0.22) and (
                         self.change1hour >= 0.3) and (self.change24hr >= 4)
 
-            if (not Manager.get_in_order() and conditional):
+            if (not super().get_in_order() and conditional):
                 print(self.change1min_PREV >= 0.04, self.change1min >= 0.07, self.change5min >= 0.22, self.change1hour >= 0.3,
                       self.change24hr >= 4)
-                logLine = printTime() + " " + str(conditional) + "\n"
+                logLine = self.printTime() + " " + str(conditional) + "\n"
                 purchase()
                 doc = open("log.txt", 'a')
                 doc.write(logLine)
                 doc.close()
 
-            time.sleep(Manager.get_a() * (1 / 2))
+            time.sleep(super().get_a() * (1 / 2))
 
-Manager()
+    def run(self):
+        #Start Streams
+        self.t1.start()
+        self.stream_price_Thread.start()
+        time.sleep(3)
+        self.min_candles_Thread.start()
+        self.hr_candles_Thread.start()
+        self.min5_candles_Thread.start()
+        time.sleep(4.2) #Crucial, allows for loading of streams
+        self.main_Thread.start()
+
+
+a = Manager()
+a.run()
 # a = Box("BNB/BTC")
 # Box("XMR/BTC")
 # Box("ETH/BTC")
-
