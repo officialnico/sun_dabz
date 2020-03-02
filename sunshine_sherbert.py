@@ -19,26 +19,13 @@ class Manager:
         self.a = 1
 
     def run(self):
-        #self.b = Box("BNB/BTC")
-        time.sleep(6)
 
         box_list = list()
-        b = Box("BNB/BTC")
 
-        b.run()
-
-        time.sleep(8)
-
-        c = Box("ETH/BTC")
-        c.run()
-
-        #box_list.append(b)
-        #box_list.append(Box(self.symbol_list[0]))
-        #
-        # for x in range(0, len(symbol_list)):
-        #     print(x)
-        #     box_list.append(Box(symbol_list[x]))
-        #     time.sleep(5)
+        for x in self.symbol_list:
+            b = Box(x)
+            b.run()
+            box_list.append(b)
 
     #SuperClass Variables: a (time coefficient), in_order, box_list
     def set_in_order(self, bool):
@@ -124,12 +111,6 @@ class Box(Manager):
             open = data_hour[0][4]
             close = self.price
 
-            if(close is None):
-                time.sleep(4)
-                close = self.price
-                if(close is None):
-                    print("Price is None At line 147")
-                    restart()
             self.change1hour = ((close - open) / open) * 100
             time.sleep(super().get_a() * (1 / 2))
 
@@ -193,10 +174,7 @@ class Box(Manager):
     def main(self):
 
         #Display Initiation
-
         print(self.symbol_ccxt, self.printTime(print=False))
-
-        time.sleep(4) #allow price loading
 
         while (1):
 
@@ -218,15 +196,21 @@ class Box(Manager):
         #Start Streams
         self.t1.start()
         self.stream_price_Thread.start()
-        time.sleep(3)
+
+        while (self.price is None):
+            pass
+
         self.min_candles_Thread.start()
         self.hr_candles_Thread.start()
         self.min5_candles_Thread.start()
-        time.sleep(4.2) #Crucial, allows for loading of streams
+
+        while(self.change1min is None or self.change1min_PREV is None or self.change1hour is None or self.change5min is None or self.change24hr is None):
+            pass
+
         self.main_Thread.start()
 
 
-a = Manager()
+a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"])
 a.run()
 # a = Box("BNB/BTC")
 # Box("XMR/BTC")
