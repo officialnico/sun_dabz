@@ -47,7 +47,7 @@ class Box(Manager):
     def __init__(self, symbol_ccxt):
         super().__init__()
 
-        #SuperClass Variables Temporary Placeholders #TODO: Inherit these variables from parent class
+        #SuperClass Variables Temporary Placeholders
         self.a = super().get_a()
         self.in_order = super().get_in_order()
         self.exchange = super().exchange #All boxes connect to this exchange object for rate limiter
@@ -132,7 +132,6 @@ class Box(Manager):
             open = data_hour[0][4]
 
             close = self.price
-            #print(self.t1.is_alive()) #TODO: Remove test
             self.change5min = ((close - open) / open) * 100
             time.sleep(super().get_a() * (1 / 2))
 
@@ -143,15 +142,6 @@ class Box(Manager):
             print("change1min>=0.07", self.change1min >= 0.07, round(self.change1min, 3), "%")
             print("change5min>=0.22", self.change5min >= 0.22, round(self.change5min, 3), "%")
             print("change1hour>=0.3", self.change1hour >= 0.3, round(self.change1hour, 3), "%")
-            if (self.change24hr is None):
-                print("24hrchange is none fixing...")
-                time.sleep(5)
-                if (self.change24hr is None):
-                    self.restart()
-                else:
-                    clearScreen()
-            else:
-                print("change24hr>=4", self.change24hr >= 4, round(self.change24hr, 3), "%")
 
             time.sleep(1*super().get_a())
             # clearScreen()
@@ -212,6 +202,3 @@ class Box(Manager):
 
 a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"])
 a.run()
-# a = Box("BNB/BTC")
-# Box("XMR/BTC")
-# Box("ETH/BTC")
