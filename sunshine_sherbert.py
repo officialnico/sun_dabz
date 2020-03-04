@@ -20,12 +20,13 @@ class Manager:
 
     def run(self):
 
-        box_list = list()
+        self.box_list = list()
 
         for x in self.symbol_list:
             b = Box(x)
             b.run()
-            box_list.append(b)
+            self.box_list.append(b)
+        print(self.box_list) #TODO remove
 
     #SuperClass Variables: a (time coefficient), in_order, box_list
     def set_in_order(self, bool):
@@ -43,30 +44,36 @@ class Manager:
     def get_box_list(self):
         return self.box_list
 
-class Box(Manager):
-    def __init__(self, symbol_ccxt):
-        super().__init__()
+    def set_box_list(self, box_list):
+        self.box_list = box_list
 
-        #SuperClass Variables Temporary Placeholders
-        self.a = super().get_a()
-        self.in_order = super().get_in_order()
-        self.exchange = super().exchange #All boxes connect to this exchange object for rate limiter
+class Box(Manager):
+
+    #Initialization
+    def __init__(self, symbol_ccxt):
+
+        #Super class initializer
+        super().__init__()
 
         #symbols (different ones for CCXT API and Unicorn websocket API)
         self.symbol_ccxt = symbol_ccxt
         self.symbol_unicorn = self.ccxtToUnicorn(symbol_ccxt)
 
         #Change vars
-        self.change24hr = None
-        self.change5min = None
-        self.change1hour = None  # WORKS
-        self.change1min = None
-        self.change1min_PREV = None
+        self.change24hr = None #>=4
+        self.change5min = None #>=0.22
+        self.change1hour = None #>=0.3
+        self.change1min = None #>=0.07
+        self.change1min_PREV = None #>=0.04
         self.price = None
 
         #Websocket API
         self.binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
         self.binance_websocket_api_manager.create_stream(["ticker", "trade"], [self.symbol_unicorn])
+
+        #Thread Control
+        self.stay_alive = True
+        self.shut_down_count = 0
 
         #Threads for streaming prices from both API's
         self.t1 = threading.Thread(target=self.stream, name="unicorn_stream") #24hr & Price stream from ccxt
@@ -76,10 +83,13 @@ class Box(Manager):
         self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle)
         self.main_Thread = threading.Thread(target=self.main) #Main Thread
 
-    #Streams
-    def stream(self):  # streams 24hour ticker
+    def __str__(self):
+        return "Box:"+self.symbol_ccxt
 
-        while True:
+    #Streams
+    def stream(self):  #streams 24hour ticker
+
+        while (self.stay_alive):
             oldest_stream_data_from_stream_buffer = self.binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
             if oldest_stream_data_from_stream_buffer:
                 stream_data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
@@ -91,13 +101,16 @@ class Box(Manager):
 
             time.sleep(super().get_a() * (1 / 2))
 
+        self.shut_down_count +=1
+        print("\n",self.symbol_ccxt,"24hr stream succesfully shut down","\n")
+
     def stream_price(self):
 
         binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")
         # binance_websocket_api_manager.create_stream(['trade', 'kline_1m'], ['bnbbtc'])
         binance_websocket_api_manager.create_stream(["trade"], [self.symbol_unicorn])
 
-        while True:
+        while(self.stay_alive):
             oldest_stream_data_from_stream_buffer = binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
             if oldest_stream_data_from_stream_buffer:
                 unicorn_fied_stream_data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
@@ -105,8 +118,11 @@ class Box(Manager):
                 self.price = float(unicorn_fied_stream_data["price"])
             time.sleep(super().get_a() * (1 / 2))
 
+        self.shut_down_count += 1
+        print("\n",self.symbol_ccxt,"Price stream succesfully shut down","\n")
+
     def stream_hour_candles(self):
-        while (1):
+        while (self.stay_alive):
             data_hour = Manager.exchange.fetchOHLCV(self.symbol_ccxt, timeframe='1h', limit=2)
             open = data_hour[0][4]
             close = self.price
@@ -114,8 +130,11 @@ class Box(Manager):
             self.change1hour = ((close - open) / open) * 100
             time.sleep(super().get_a() * (1 / 2))
 
+        self.shut_down_count += 1
+        print("\n",self.symbol_ccxt,"Hour stream succesfully shut down","\n")
+
     def stream_minute_candles(self):
-        while (1):
+        while (self.stay_alive):
             data_min = Manager.exchange.fetchOHLCV(self.symbol_ccxt, timeframe='1m', limit=3)
             open_prev = data_min[0][4]
             close_prev = data_min[1][4]
@@ -126,14 +145,20 @@ class Box(Manager):
 
             time.sleep(super().get_a() * (1 / 2))
 
+        self.shut_down_count += 1
+        print("\n",self.symbol_ccxt,"Minutes stream succesfully shut down","\n")
+
     def stream_5min_candle(self):
-        while (1):
+        while (self.stay_alive):
             data_hour = Manager.exchange.fetchOHLCV(self.symbol_ccxt, timeframe='5m', limit=2)
             open = data_hour[0][4]
 
             close = self.price
             self.change5min = ((close - open) / open) * 100
             time.sleep(super().get_a() * (1 / 2))
+
+        self.shut_down_count += 1
+        print("\n",self.symbol_ccxt,"5min stream succesfully shut down")
 
     #Functions
     def printBools(self, clear=False): #TODO Remove later
@@ -154,7 +179,7 @@ class Box(Manager):
     def printTime(self, print=True):
         now = datetime.datetime.now()
         s = now.strftime("%Y-%m-%d %H:%M:%S")
-        if print==True: print(s)
+        if(print): print(s)
         return s
 
     def restart(self):  # works
@@ -166,7 +191,7 @@ class Box(Manager):
         #Display Initiation
         print(self.symbol_ccxt, self.printTime(print=False))
 
-        while (1):
+        while (self.stay_alive):
 
             conditional = (self.change1min_PREV >= 0.04) and (self.change1min >= 0.07) and (self.change5min >= 0.22) and (
                         self.change1hour >= 0.3) and (self.change24hr >= 4)
@@ -174,13 +199,16 @@ class Box(Manager):
             if (not super().get_in_order() and conditional):
                 print(self.change1min_PREV >= 0.04, self.change1min >= 0.07, self.change5min >= 0.22, self.change1hour >= 0.3,
                       self.change24hr >= 4)
-                logLine = self.printTime() + " " + str(conditional) + "\n"
+                #logLine = self.printTime() + " " + str(conditional) + "\n"
                 print("purchase()")
                 # doc = open("log.txt", 'a')
                 # doc.write(logLine)
                 # doc.close()
 
             time.sleep(super().get_a() * (1 / 2))
+
+        self.shut_down_count += 1
+        print("\n",self.symbol_ccxt, "Main thread shut down")
 
     def run(self):
         #Start Streams
@@ -199,7 +227,17 @@ class Box(Manager):
 
         self.main_Thread.start()
 
+    def stop(self):
+        print(self.symbol_ccxt,"Shutting down...")
+        self.stay_alive = False
+        while(self.shut_down_count!=6):
+            time.sleep(1/3)
+        print('\n')
+        print(self)
+
 class Radar(Manager):
+
+    #Initialization
     def __init__(self, symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"]): #TODO make actual full list of coins
         super().__init__()
         self.symbol_list = symbol_list
@@ -208,11 +246,16 @@ class Radar(Manager):
 
     #Find symbols that meet the criteria
     def scan(self):
+        ref_list = []
         for x in self.symbol_list:
             change_24hr = self.get_change_24hr(x)
             change_1hr = self.get_change_1hr(x)
-            ref_list=[]
-            if(change_24hr >= 4 and change_1hr >= 0.3): ref_list.append(x)
+            print(change_24hr >= 4 and change_1hr >= 0.3)
+            if(change_24hr >= 4 and change_1hr >= 0.3):
+                ref_list.append(x)
+                print(ref_list)
+                print(x)
+                print(change_24hr >= 4 and change_1hr >= 0.3)
         self.refined_list=ref_list
 
         print(self.refined_list)
@@ -235,9 +278,18 @@ class Radar(Manager):
             time.sleep(60*60)
 
     def run(self):
+        pass
 
-
-a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"])
-#a.run()
-rad = Radar()
-rad.scan()
+#a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
+print(len(threading.enumerate()),threading.enumerate())
+a= Manager(symbol_list=["BTG/BTC"])
+a.run()
+time.sleep(5)
+print(len(threading.enumerate()),threading.enumerate())
+b_l = a.get_box_list()
+print(threading.enumerate(), len(threading.enumerate()))
+b_l[0].stop()
+print("finalized")
+print(threading.enumerate(), len(threading.enumerate()))
+#rad = Radar(symbol_list=["BNB/BTC","XMR/BTC","ETH/  BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
+#rad.scan()
