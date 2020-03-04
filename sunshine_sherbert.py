@@ -136,7 +136,7 @@ class Box(Manager):
             time.sleep(super().get_a() * (1 / 2))
 
     #Functions
-    def printBools(self): #TODO Remove later
+    def printBools(self, clear=False): #TODO Remove later
         while (1):
             print("change1min_PREV>=0.04", self.change1min_PREV >= 0.04, round(self.change1min_PREV, 3), "%")
             print("change1min>=0.07", self.change1min >= 0.07, round(self.change1min, 3), "%")
@@ -144,7 +144,7 @@ class Box(Manager):
             print("change1hour>=0.3", self.change1hour >= 0.3, round(self.change1hour, 3), "%")
 
             time.sleep(1*super().get_a())
-            # clearScreen()
+            if clear: clearScreen()
 
     def ccxtToUnicorn(self, s):
         s = s.replace('/', "")
@@ -175,10 +175,10 @@ class Box(Manager):
                 print(self.change1min_PREV >= 0.04, self.change1min >= 0.07, self.change5min >= 0.22, self.change1hour >= 0.3,
                       self.change24hr >= 4)
                 logLine = self.printTime() + " " + str(conditional) + "\n"
-                purchase()
-                doc = open("log.txt", 'a')
-                doc.write(logLine)
-                doc.close()
+                print("purchase()")
+                # doc = open("log.txt", 'a')
+                # doc.write(logLine)
+                # doc.close()
 
             time.sleep(super().get_a() * (1 / 2))
 
@@ -188,17 +188,56 @@ class Box(Manager):
         self.stream_price_Thread.start()
 
         while (self.price is None):
-            pass
+            time.sleep(1/3)
 
         self.min_candles_Thread.start()
         self.hr_candles_Thread.start()
         self.min5_candles_Thread.start()
 
         while(self.change1min is None or self.change1min_PREV is None or self.change1hour is None or self.change5min is None or self.change24hr is None):
-            pass
+            time.sleep(1/3)
 
         self.main_Thread.start()
 
+class Radar(Manager):
+    def __init__(self, symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"]): #TODO make actual full list of coins
+        super().__init__()
+        self.symbol_list = symbol_list
+        self.refined_list = []
+        self.stay_alive = True
+
+    #Find symbols that meet the criteria
+    def scan(self):
+        for x in self.symbol_list:
+            change_24hr = self.get_change_24hr(x)
+            change_1hr = self.get_change_1hr(x)
+            ref_list=[]
+            if(change_24hr >= 4 and change_1hr >= 0.3): ref_list.append(x)
+        self.refined_list=ref_list
+
+        print(self.refined_list)
+
+    def get_change_24hr(self, symbol_ccxt):
+        tick = Manager.exchange.fetchTicker(symbol_ccxt)
+        return tick['percentage']
+
+    def get_change_1hr(self, symbol_ccxt):
+        data_hour = Manager.exchange.fetchOHLCV(symbol_ccxt, timeframe='1h', limit=2)
+        open = data_hour[0][4]
+        close = data_hour[1][4]
+
+        change1hour = ((close - open) / open) * 100
+        return change1hour
+
+    def frequent_scanner(self):
+        while(self.stay_alive):
+            scan()
+            time.sleep(60*60)
+
+    def run(self):
+
 
 a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"])
-a.run()
+#a.run()
+rad = Radar()
+rad.scan()
