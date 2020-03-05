@@ -8,15 +8,19 @@ import threading
 import os
 import datetime
 import sys
+from tqdm import tqdm
 
 class Manager:
 
+    #One Exchange to be used by subclasses
     exchange = ccxt.binance({'enableRateLimit': True})
 
+    #Initialization
     def __init__(self, symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC"], in_order=False, a=1):
         self.symbol_list = symbol_list
         self.in_order = in_order
         self.a = 1
+        self.full_markets = self.get_markets()
 
     def run(self):
 
@@ -26,9 +30,8 @@ class Manager:
             b = Box(x)
             b.run()
             self.box_list.append(b)
-        print(self.box_list) #TODO remove
 
-    #SuperClass Variables: a (time coefficient), in_order, box_list
+    #SuperClass Variable fetchers/getters: a (time coefficient), in_order, box_list
     def set_in_order(self, bool):
         self.in_order = bool
 
@@ -46,6 +49,16 @@ class Manager:
 
     def set_box_list(self, box_list):
         self.box_list = box_list
+
+    #Important Data Retrieval
+    def get_markets(self, load=False):
+        exchange.load_markets()
+        symbols = exchange.symbols  # get a list of symbols
+        if(load):self.full_markets = symbols
+        for x in symbols:
+            if("BTC" not in x):
+                symbols.remove(x)
+        return symbols
 
 class Box(Manager):
 
@@ -67,10 +80,6 @@ class Box(Manager):
         self.change1min_PREV = None #>=0.04
         self.price = None
 
-        #Websocket API
-        self.binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
-        self.binance_websocket_api_manager.create_stream(["ticker", "trade"], [self.symbol_unicorn])
-
         #Thread Control
         self.stay_alive = True
         self.shut_down_count = 0
@@ -90,8 +99,11 @@ class Box(Manager):
     #Streams
     def stream(self):  #streams 24hour ticker
 
+        binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
+        binance_websocket_api_manager.create_stream(["ticker", "trade"], [self.symbol_unicorn])
+
         while (self.stay_alive):
-            oldest_stream_data_from_stream_buffer = self.binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
+            oldest_stream_data_from_stream_buffer = binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
             if oldest_stream_data_from_stream_buffer:
                 stream_data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
 
@@ -101,7 +113,7 @@ class Box(Manager):
 
             time.sleep(super().get_a() * (1 / 2))
 
-        self.binance_websocket_api_manager.stop_manager_with_all_streams()
+        binance_websocket_api_manager.stop_manager_with_all_streams()
         self.shut_down_count +=1
         if(self.messages):print(self.symbol_ccxt,"24hr stream succesfully shut down","\n")
 
@@ -163,7 +175,7 @@ class Box(Manager):
 
     #Functions
     def printBools(self, clear=False): #TODO Remove later
-        while (1):
+        while (self.stay_alive):
             print("change1min_PREV>=0.04", self.change1min_PREV >= 0.04, round(self.change1min_PREV, 3), "%")
             print("change1min>=0.07", self.change1min >= 0.07, round(self.change1min, 3), "%")
             print("change5min>=0.22", self.change5min >= 0.22, round(self.change5min, 3), "%")
@@ -202,9 +214,6 @@ class Box(Manager):
                       self.change24hr >= 4)
                 #logLine = self.printTime() + " " + str(conditional) + "\n"
                 print("purchase()")
-                # doc = open("log.txt", 'a')
-                # doc.write(logLine)
-                # doc.close()
 
             time.sleep(super().get_a() * (1 / 2))
 
@@ -234,7 +243,6 @@ class Box(Manager):
         while(self.shut_down_count!=6):
             time.sleep(1/3)
         print('\n')
-        print(self)
 
 class Radar(Manager):
 
@@ -242,24 +250,27 @@ class Radar(Manager):
     def __init__(self, symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"]): #TODO make actual full list of coins
         super().__init__()
         self.symbol_list = symbol_list
-        self.refined_list = []
         self.stay_alive = True
 
     #Find symbols that meet the criteria
-    def scan(self):
+    def scan(self, loading_bar=False):
         ref_list = []
+
+        bar = tqdm(total=len(self.symbol_list),position=0,leave=False)
+
         for x in self.symbol_list:
             change_24hr = self.get_change_24hr(x)
             change_1hr = self.get_change_1hr(x)
-            print(change_24hr >= 4 and change_1hr >= 0.3)
+
             if(change_24hr >= 4 and change_1hr >= 0.3):
                 ref_list.append(x)
-                print(ref_list)
-                print(x)
-                print(change_24hr >= 4 and change_1hr >= 0.3)
-        self.refined_list=ref_list
 
-        print(self.refined_list)
+            bar.set_description("Scanning...".format(x))
+            bar.update(1)
+
+        bar.close()
+
+        return ref_list
 
     def get_change_24hr(self, symbol_ccxt):
         tick = Manager.exchange.fetchTicker(symbol_ccxt)
@@ -276,18 +287,52 @@ class Radar(Manager):
     def frequent_scanner(self):
         while(self.stay_alive):
             scan()
-            time.sleep(60*60)
+            time.sleep(30*60)
+
+    def update_boxes(self):
+        new_list = scan()
 
     def run(self):
         pass
 
 #a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
-a= Manager(symbol_list=["XMR/BTC"])
-a.run()
-time.sleep(5)
-b_l = a.get_box_list()
-b_l[0].stop()
-print("finalized")
 
+#a.run()
+#time.sleep(5)
+# b_l = a.get_box_list()
+# b_l[0].stop()
+# b_l[1].stop()
+#print("finalized")
+
+markets = ['bnbbtc', 'ethbtc', 'btcusdt', 'bchabcusdt', 'xrpusdt', 'rvnbtc', 'ltcusdt', 'adausdt', 'eosusdt',
+           'neousdt', 'bnbusdt', 'adabtc', 'ethusdt', 'trxbtc', 'bchabcbtc', 'ltcbtc', 'xrpbtc',
+           'ontbtc', 'bttusdt', 'eosbtc', 'xlmbtc', 'bttbtc', 'tusdusdt', 'xlmusdt', 'qkcbtc', 'zrxbtc',
+           'neobtc', 'adaeth', 'icxusdt', 'btctusd', 'icxbtc', 'btcusdc', 'wanbtc', 'zecbtc', 'wtcbtc',
+           'batbtc', 'adabnb', 'etcusdt', 'qtumusdt', 'xmrbtc', 'trxeth', 'adatusd', 'trxxrp', 'trxbnb',
+           'dashbtc', 'rvnbnb', 'bchabctusd', 'etcbtc', 'bnbeth', 'ethpax', 'nanobtc', 'xembtc', 'xrpbnb',
+           'bchabcpax', 'xrpeth', 'bttbnb', 'ltcbnb', 'agibtc', 'zrxusdt', 'xlmbnb', 'ltceth', 'eoseth',
+           'ltctusd', 'polybnb', 'scbtc', 'steembtc', 'trxtusd', 'npxseth', 'kmdbtc', 'polybtc', 'gasbtc',
+           'engbtc', 'zileth', 'xlmeth', 'eosbnb', 'xrppax', 'lskbtc', 'npxsbtc', 'xmrusdt', 'ltcpax',
+           'ethtusd', 'batusdt', 'mcobtc', 'neoeth', 'bntbtc', 'eostusd', 'lrcbtc', 'funbtc', 'zecusdt',
+           'bnbpax', 'linkusdt', 'hceth', 'zrxeth', 'icxeth', 'xmreth', 'neobnb', 'etceth', 'zeceth', 'xmrbnb',
+           'wanbnb', 'zrxbnb', 'agibnb', 'funeth', 'arketh', 'engeth']
+
+exchange = ccxt.binance({'enableRateLimit': True})
+
+
+
+
+
+symbols = exchange.symbols                 # get a list of symbols
+
+man = Manager()
+full_list = man.get_markets()
+
+rad = Radar(symbol_list=full_list)
+print(rad.scan(loading_bar=True))
+
+
+# rad = Radar()
+# print(rad.scan())
 #rad = Radar(symbol_list=["BNB/BTC","XMR/BTC","ETH/  BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
 #rad.scan()
