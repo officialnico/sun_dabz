@@ -50,7 +50,7 @@ class Manager:
 class Box(Manager):
 
     #Initialization
-    def __init__(self, symbol_ccxt):
+    def __init__(self, symbol_ccxt, messages=False):
 
         #Super class initializer
         super().__init__()
@@ -74,14 +74,15 @@ class Box(Manager):
         #Thread Control
         self.stay_alive = True
         self.shut_down_count = 0
+        self.messages = messages
 
         #Threads for streaming prices from both API's
-        self.t1 = threading.Thread(target=self.stream, name="unicorn_stream") #24hr & Price stream from ccxt
-        self.min_candles_Thread = threading.Thread(target=self.stream_minute_candles)
-        self.hr_candles_Thread = threading.Thread(target=self.stream_hour_candles)
-        self.stream_price_Thread = threading.Thread(target=self.stream_price)
-        self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle)
-        self.main_Thread = threading.Thread(target=self.main) #Main Thread
+        self.t1 = threading.Thread(target=self.stream, name="t1") #24hr & Price stream from ccxt
+        self.min_candles_Thread = threading.Thread(target=self.stream_minute_candles, name="min_candles")
+        self.hr_candles_Thread = threading.Thread(target=self.stream_hour_candles, name="hour_candles")
+        self.stream_price_Thread = threading.Thread(target=self.stream_price, name="price")
+        self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle,name="min5_candles")
+        self.main_Thread = threading.Thread(target=self.main,name="main") #Main Thread
 
     def __str__(self):
         return "Box:"+self.symbol_ccxt
@@ -93,7 +94,6 @@ class Box(Manager):
             oldest_stream_data_from_stream_buffer = self.binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
             if oldest_stream_data_from_stream_buffer:
                 stream_data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
-                # pprint.pprint(stream_data)
 
                 if (stream_data['event_type'] == "24hrTicker"):
                     # set 24hr change to the value there
@@ -101,13 +101,13 @@ class Box(Manager):
 
             time.sleep(super().get_a() * (1 / 2))
 
+        self.binance_websocket_api_manager.stop_manager_with_all_streams()
         self.shut_down_count +=1
-        print("\n",self.symbol_ccxt,"24hr stream succesfully shut down","\n")
+        if(self.messages):print(self.symbol_ccxt,"24hr stream succesfully shut down","\n")
 
     def stream_price(self):
 
         binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")
-        # binance_websocket_api_manager.create_stream(['trade', 'kline_1m'], ['bnbbtc'])
         binance_websocket_api_manager.create_stream(["trade"], [self.symbol_unicorn])
 
         while(self.stay_alive):
@@ -118,8 +118,9 @@ class Box(Manager):
                 self.price = float(unicorn_fied_stream_data["price"])
             time.sleep(super().get_a() * (1 / 2))
 
+        binance_websocket_api_manager.stop_manager_with_all_streams()
         self.shut_down_count += 1
-        print("\n",self.symbol_ccxt,"Price stream succesfully shut down","\n")
+        if(self.messages):print(self.symbol_ccxt,"Price stream succesfully shut down","\n")
 
     def stream_hour_candles(self):
         while (self.stay_alive):
@@ -131,7 +132,7 @@ class Box(Manager):
             time.sleep(super().get_a() * (1 / 2))
 
         self.shut_down_count += 1
-        print("\n",self.symbol_ccxt,"Hour stream succesfully shut down","\n")
+        if(self.messages):print(self.symbol_ccxt,"Hour stream succesfully shut down","\n")
 
     def stream_minute_candles(self):
         while (self.stay_alive):
@@ -146,7 +147,7 @@ class Box(Manager):
             time.sleep(super().get_a() * (1 / 2))
 
         self.shut_down_count += 1
-        print("\n",self.symbol_ccxt,"Minutes stream succesfully shut down","\n")
+        if(self.messages):print(self.symbol_ccxt,"Minutes stream succesfully shut down","\n")
 
     def stream_5min_candle(self):
         while (self.stay_alive):
@@ -158,7 +159,7 @@ class Box(Manager):
             time.sleep(super().get_a() * (1 / 2))
 
         self.shut_down_count += 1
-        print("\n",self.symbol_ccxt,"5min stream succesfully shut down")
+        if(self.messages):print(self.symbol_ccxt,"5min stream succesfully shut down")
 
     #Functions
     def printBools(self, clear=False): #TODO Remove later
@@ -208,7 +209,7 @@ class Box(Manager):
             time.sleep(super().get_a() * (1 / 2))
 
         self.shut_down_count += 1
-        print("\n",self.symbol_ccxt, "Main thread shut down")
+        if(self.messages):print("\n",self.symbol_ccxt, "Main thread shut down")
 
     def run(self):
         #Start Streams
@@ -228,7 +229,7 @@ class Box(Manager):
         self.main_Thread.start()
 
     def stop(self):
-        print(self.symbol_ccxt,"Shutting down...")
+        if(self.messages):print(self.symbol_ccxt,"Shutting down...")
         self.stay_alive = False
         while(self.shut_down_count!=6):
             time.sleep(1/3)
@@ -281,15 +282,12 @@ class Radar(Manager):
         pass
 
 #a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
-print(len(threading.enumerate()),threading.enumerate())
-a= Manager(symbol_list=["BTG/BTC"])
+a= Manager(symbol_list=["XMR/BTC"])
 a.run()
 time.sleep(5)
-print(len(threading.enumerate()),threading.enumerate())
 b_l = a.get_box_list()
-print(threading.enumerate(), len(threading.enumerate()))
 b_l[0].stop()
 print("finalized")
-print(threading.enumerate(), len(threading.enumerate()))
+
 #rad = Radar(symbol_list=["BNB/BTC","XMR/BTC","ETH/  BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
 #rad.scan()
