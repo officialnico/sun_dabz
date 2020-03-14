@@ -9,6 +9,7 @@ import os
 import datetime
 import sys
 from tqdm import tqdm
+from colorama import Fore
 
 class Manager:
 
@@ -16,20 +17,25 @@ class Manager:
     exchange = ccxt.binance({'enableRateLimit': True})
 
     #Initialization
-    def __init__(self, symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC"], in_order=False, a=1):
-        self.symbol_list = symbol_list
+    def __init__(self, in_order=False, a=1):
         self.in_order = in_order
         self.a = 1
-        self.full_markets = self.get_markets()
-
-    def run(self):
-
+        self.mega_markets = self.load_markets()
         self.box_list = list()
 
-        for x in self.symbol_list:
-            b = Box(x)
-            b.run()
-            self.box_list.append(b)
+        #Create folder for market efficiency
+
+
+
+    #Main Functions
+    def run(self):
+        self.rad = Radar()
+        self.rad.run()
+
+    def shutdown_boxes(self):
+        if(len(self.box_list)>0):
+            for x in self.box_list:
+                x.stop()
 
     #SuperClass Variable fetchers/getters: a (time coefficient), in_order, box_list
     def set_in_order(self, bool):
@@ -51,14 +57,22 @@ class Manager:
         self.box_list = box_list
 
     #Important Data Retrieval
-    def get_markets(self, load=False):
+    def load_markets(self):
+        #Will fetch all /BTC markets
+        arr = []
         exchange.load_markets()
         symbols = exchange.symbols  # get a list of symbols
-        if(load):self.full_markets = symbols
         for x in symbols:
-            if("BTC" not in x):
-                symbols.remove(x)
-        return symbols
+            if("/BTC" in x):
+                arr.append(x)
+
+        return arr
+
+    def get_markets(self):
+        return self.mega_markets
+
+    def set_markets(self, new_mega_markets):
+        self.mega_markets = new_mega_markets
 
 class Box(Manager):
 
@@ -119,7 +133,7 @@ class Box(Manager):
 
     def stream_price(self):
 
-        binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")
+        binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
         binance_websocket_api_manager.create_stream(["trade"], [self.symbol_unicorn])
 
         while(self.stay_alive):
@@ -173,6 +187,13 @@ class Box(Manager):
         self.shut_down_count += 1
         if(self.messages):print(self.symbol_ccxt,"5min stream succesfully shut down")
 
+    def stream_ask_price(self): #purchasing price
+        binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
+
+
+    def stream_bid_price(self):
+        pass
+
     #Functions
     def printBools(self, clear=False): #TODO Remove later
         while (self.stay_alive):
@@ -197,6 +218,9 @@ class Box(Manager):
 
     def restart(self):  # works
         os.execl(sys.executable, sys.executable, *sys.argv)
+
+    def get_symbol(self):
+        return self.symbol_ccxt
 
     #Main Functions
     def main(self):
@@ -242,35 +266,66 @@ class Box(Manager):
         self.stay_alive = False
         while(self.shut_down_count!=6):
             time.sleep(1/3)
-        print('\n')
+        print(self.symbol_ccxt, "Succesfully Closed")
 
+#TODO scan keeps deleting most of the markets
 class Radar(Manager):
 
     #Initialization
-    def __init__(self, symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC"]): #TODO make actual full list of coins
+    def __init__(self):
         super().__init__()
-        self.symbol_list = symbol_list
         self.stay_alive = True
+        self.update_boxes_Thread = threading.Thread(target=self.update_boxes, name="update_boxes_Thread")  # Main Thread
 
     #Find symbols that meet the criteria
-    def scan(self, loading_bar=False):
+    def scan(self):
         ref_list = []
-
-        bar = tqdm(total=len(self.symbol_list),position=0,leave=False)
-
-        for x in self.symbol_list:
-            change_24hr = self.get_change_24hr(x)
-            change_1hr = self.get_change_1hr(x)
-
-            if(change_24hr >= 4 and change_1hr >= 0.3):
+        temp_str = "" #TODO remove
+        refined_mega_markets = super().get_markets()
+        bar = tqdm(total=len(refined_mega_markets),position=0,leave=False,bar_format="{l_bar}%s{bar}%s{r_bar}" % (Fore.GREEN, Fore.RESET))
+        for x in refined_mega_markets:
+            change24temp = self.get_change_24hr(x)
+            if(change24temp >= 4 and self.get_change_1hr(x) >= 0.3 and self.get_volume_24hr(x)>270033):
                 ref_list.append(x)
-
+            elif(change24temp<3 or self.get_change_1hr(x) < 0.2 or self.get_volume_24hr(x)<250033):
+                refined_mega_markets.remove(x)
+                temp_str += "->" + x + "change24: " + str(change24temp) + "change1hr: "+ str(self.get_change_1hr(x)) + "\n" #TODO remove
+                bar.update(1)
             bar.set_description("Scanning...".format(x))
             bar.update(1)
-
         bar.close()
+        if(len(ref_list)>2):
+            m1 = None
+            m2 = None
+            max_symbol = ref_list[0]
+            max_change = self.get_change_1w(max_symbol)
+            for x in ref_list:
+                change_w = self.get_change_1w(x)
+                if(change_w>max_change):
+                    max_change = change_w
+                    max_symbol = x
+                bar.update(1)
+            m1 = max_symbol
+            ref_list.remove(m1)
 
+            max_symbol = ref_list[0]
+            max_change = self.get_change_1w(max_symbol)
+            for x in ref_list:
+                change_w = self.get_change_1w(x)
+                if(change_w>max_change):
+                    max_change = change_w
+                    max_symbol = x
+            m2 =  max_symbol
+            ref_list = [m1,m2]
+
+        super().set_markets(refined_mega_markets)
+        print("Scan Completed", ref_list)
+        print(temp_str) #TODO remove
         return ref_list
+
+    def get_volume_24hr(self, symbol_ccxt):
+        data_hour = Manager.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
+        return data_hour[0][5]
 
     def get_change_24hr(self, symbol_ccxt):
         tick = Manager.exchange.fetchTicker(symbol_ccxt)
@@ -284,55 +339,102 @@ class Radar(Manager):
         change1hour = ((close - open) / open) * 100
         return change1hour
 
-    def frequent_scanner(self):
-        while(self.stay_alive):
-            scan()
-            time.sleep(30*60)
+    def get_change_1w(self, symbol_ccxt):
+        data_hour = Manager.exchange.fetchOHLCV(symbol_ccxt, timeframe='1w', limit=2)
+        open = data_hour[0][4]
+        close = data_hour[1][4]
+
+        change1w = ((close - open) / open) * 100
+        return change1w
 
     def update_boxes(self):
-        new_list = scan()
+        while(self.stay_alive):
+            while(super().get_in_order()):
+                time.sleep(5)
+            if(not super().get_in_order()):
+                new_list = self.scan()
+
+                #Dynamic Remove
+                new_box_list = list()
+                current_boxes = super().get_box_list()
+                for x in current_boxes:
+                    if(x.get_symbol() in new_list): #TODO verify if this actually works
+                        new_list.remove(x.get_symbol())
+                        new_box_list.append(x)
+                    elif(len(current_boxes)==2):
+                        x.stop()
+
+                #Add and run only those not added previously
+                for x in new_list:
+                    b = Box(x)
+                    b.run()
+                    new_box_list.append(b)
+
+                super().set_box_list(new_box_list)
+
+                #TODO Remove
+                for x in new_box_list:
+                    print(x.get_symbol())
+                temp = super().get_box_list()
+                print("--current boxes---")
+                for x in temp:
+                    print(x.get_symbol())
+                print("------------------")
+
+
+            if(len(super().get_box_list())<=1): time.sleep(5)
+            if(len(super().get_box_list())>1): time.sleep(20*60)
+            #time.sleep(60*30)
 
     def run(self):
+        self.update_boxes_Thread.start()
+
+class Transaction(Box): #TODO not working yet only layout
+    def __init__(self):
+        super().__init__()
+        self.purchase_price = None
+
+    def purchase(self):
         pass
 
-#a = Manager(symbol_list=["BNB/BTC","XMR/BTC","ETH/BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
+    def sell(self):
+        pass
 
-#a.run()
-#time.sleep(5)
-# b_l = a.get_box_list()
-# b_l[0].stop()
-# b_l[1].stop()
-#print("finalized")
+    def maintain(self):
+        pass
 
-markets = ['bnbbtc', 'ethbtc', 'btcusdt', 'bchabcusdt', 'xrpusdt', 'rvnbtc', 'ltcusdt', 'adausdt', 'eosusdt',
-           'neousdt', 'bnbusdt', 'adabtc', 'ethusdt', 'trxbtc', 'bchabcbtc', 'ltcbtc', 'xrpbtc',
-           'ontbtc', 'bttusdt', 'eosbtc', 'xlmbtc', 'bttbtc', 'tusdusdt', 'xlmusdt', 'qkcbtc', 'zrxbtc',
-           'neobtc', 'adaeth', 'icxusdt', 'btctusd', 'icxbtc', 'btcusdc', 'wanbtc', 'zecbtc', 'wtcbtc',
-           'batbtc', 'adabnb', 'etcusdt', 'qtumusdt', 'xmrbtc', 'trxeth', 'adatusd', 'trxxrp', 'trxbnb',
-           'dashbtc', 'rvnbnb', 'bchabctusd', 'etcbtc', 'bnbeth', 'ethpax', 'nanobtc', 'xembtc', 'xrpbnb',
-           'bchabcpax', 'xrpeth', 'bttbnb', 'ltcbnb', 'agibtc', 'zrxusdt', 'xlmbnb', 'ltceth', 'eoseth',
-           'ltctusd', 'polybnb', 'scbtc', 'steembtc', 'trxtusd', 'npxseth', 'kmdbtc', 'polybtc', 'gasbtc',
-           'engbtc', 'zileth', 'xlmeth', 'eosbnb', 'xrppax', 'lskbtc', 'npxsbtc', 'xmrusdt', 'ltcpax',
-           'ethtusd', 'batusdt', 'mcobtc', 'neoeth', 'bntbtc', 'eostusd', 'lrcbtc', 'funbtc', 'zecusdt',
-           'bnbpax', 'linkusdt', 'hceth', 'zrxeth', 'icxeth', 'xmreth', 'neobnb', 'etceth', 'zeceth', 'xmrbnb',
-           'wanbnb', 'zrxbnb', 'agibnb', 'funeth', 'arketh', 'engeth']
+    def set_box(self,):
+        self.box = box
 
 exchange = ccxt.binance({'enableRateLimit': True})
 
 
 
-
-
-symbols = exchange.symbols                 # get a list of symbols
-
 man = Manager()
-full_list = man.get_markets()
-
-rad = Radar(symbol_list=full_list)
-print(rad.scan(loading_bar=True))
-
+man.run()
 
 # rad = Radar()
-# print(rad.scan())
-#rad = Radar(symbol_list=["BNB/BTC","XMR/BTC","ETH/  BTC","BTG/BTC","KNC/BTC","ETC/BTC", "LINK/BTC", "COTI/BTC"])
-#rad.scan()
+#
+# rad.run()
+
+time.sleep(1)
+
+#
+# #TEST
+# for x in s1:
+#     print(x)
+#     print("change1hr",rad.get_change_1hr(x))
+#     print("change24hr",rad.get_change_24hr(x))
+#     print("volume", rad.get_volume_24hr(x))
+#     print("------")
+#
+# print("==========")
+#
+# for x in s2:
+#     print(x)
+#     print("change1hr",rad.get_change_1hr(x))
+#     print("change24hr",rad.get_change_24hr(x))
+#     print("volume",rad.get_volume_24hr(x))
+#     print("------")
+# #TEST
+#
