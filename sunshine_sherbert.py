@@ -40,6 +40,10 @@ class Manager:
             for x in self.box_list:
                 x.stop()
 
+    def shutdown(self):
+        shutdown_boxes()
+        upda
+
     def pause_others(self, symbol_ccxt, pause = True ):
 
         if(pause):
@@ -108,10 +112,14 @@ class Manager:
     def set_markets(self, new_mega_markets):
         self.mega_markets = new_mega_markets
 
+
 class Box(Manager):
 
     #Initialization
     def __init__(self, symbol_ccxt, messages=False):
+
+        #TODO remove
+        print("box init:", symbol_ccxt, len(threading.enumerate()),threading.enumerate())
 
         #Super class initializer
         super().__init__()
@@ -139,11 +147,11 @@ class Box(Manager):
         self.paused = False
 
         #Threads for streaming prices from both API's
-        self.t1 = threading.Thread(target=self.stream, name="unicorn: price and 24hr change") #24hr & Price stream from ccxt
-        self.min_candles_Thread = threading.Thread(target=self.stream_minute_candles, name="min_candles")
-        self.hr_candles_Thread = threading.Thread(target=self.stream_hour_candles, name="hour_candles")
-        self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle,name="min5_candles")
-        self.main_Thread = threading.Thread(target=self.main,name="main") #Main Thread
+        self.t1 = threading.Thread(target=self.stream, name="box_price&24hr_change") #24hr & Price stream from ccxt
+        self.min_candles_Thread = threading.Thread(target=self.stream_minute_candles, name="box_min_candles")
+        self.hr_candles_Thread = threading.Thread(target=self.stream_hour_candles, name="box_hour_candles")
+        self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle,name="box_min5_candles")
+        self.main_Thread = threading.Thread(target=self.main,name="box_main") #Main Thread
 
         #Transaction data
         self.profit = None
@@ -348,14 +356,26 @@ class Box(Manager):
         self.paused = False
         self.tran.paused = False
 
+
 class Radar(Manager):
 
     #Initialization
     def __init__(self):
+
+        #TODO remove
+        print("radar init:", len(threading.enumerate()),threading.enumerate())
+
         super().__init__()
         self.stay_alive = True
         self.update_boxes_Thread = threading.Thread(target=self.update_boxes, name="update_boxes_Thread")  # Main Thread
         self.paused = False
+
+    #Process
+    def run(self):
+        self.update_boxes_Thread.start()
+
+    def stop(self):
+        self.stay_alive = False
 
     #Find symbols that meet the criteria
     def scan(self):
@@ -419,6 +439,7 @@ class Radar(Manager):
 
         return ref_list
 
+    #Data retrieval
     def get_volume_24hr(self, symbol_ccxt): #TODO try using 1hr volume instead to guarantee trades
         data_hour = Manager.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
         return data_hour[0][5]
@@ -445,6 +466,10 @@ class Radar(Manager):
 
     def update_boxes(self): #TODO fix boxes get deleted
         #TODO increase volume
+
+        # TODO remove
+        print("update_boxes init:", len(threading.enumerate()), threading.enumerate())
+
         while(self.stay_alive):
             while(super().get_in_order()):
                 time.sleep(5)
@@ -467,6 +492,7 @@ class Radar(Manager):
                 for x in super().get_box_list():
                     print(x)
                 print("------------------")
+                print("current_boxes", len(threading.enumerate()), threading.enumerate())
 
             if(self.paused):
                 time.sleep(5)
@@ -474,8 +500,6 @@ class Radar(Manager):
             if(len(super().get_box_list())<=1): time.sleep(60)
             elif(len(super().get_box_list())>1): time.sleep(60*20)
 
-    def run(self):
-        self.update_boxes_Thread.start()
 
 class Transaction(): #TODO not working yet only layout
 
@@ -495,11 +519,10 @@ class Transaction(): #TODO not working yet only layout
         self.sell_price = None
         self.budget = 0.0092 #50 USD in BTC
 
-        self.stream_bids_Thread = threading.Thread(target=self.stream_bids, name="bids thread")
-        self.stream_asks_Thread = threading.Thread(target=self.stream_asks, name="asks thread")
+        self.stream_bids_Thread = threading.Thread(target=self.stream_bids, name="Tran_bids&asks")
 
-        self.binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
-        self.binance_websocket_api_manager.create_stream(["ticker"], [self.symbol_unicorn])
+        # self.binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
+        # self.binance_websocket_api_manager.create_stream(["ticker"], [self.symbol_unicorn])
 
     #transaction functions
     def purchase(self):
@@ -559,40 +582,31 @@ class Transaction(): #TODO not working yet only layout
         print("order submitted", self.symbol_unicorn) #TODO remove
 
     #Streams
-    def stream_bids(self):
+    def stream_bids(self): #streams asks as well
+        binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
+        binance_websocket_api_manager.create_stream(["ticker"], [self.symbol_unicorn])
         while (self.stay_alive):
-            oldest_stream_data_from_stream_buffer = self.binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
+            oldest_stream_data_from_stream_buffer = binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
             if oldest_stream_data_from_stream_buffer:
                 data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
                 self.bid = float(data["data"][0]["best_bid_price"])
-
-            if(self.paused):
-                time.sleep(5)
-            time.sleep(self.a)
-        self.binance_websocket_api_manager.stop_manager_with_all_streams() #Stops stream for both threads
-        self.shut_down_count += 1
-
-    def stream_asks(self):
-        while (self.stay_alive):
-            oldest_stream_data_from_stream_buffer = self.binance_websocket_api_manager.pop_stream_data_from_stream_buffer()
-            if oldest_stream_data_from_stream_buffer:
-                data = UnicornFy.binance_com_websocket(oldest_stream_data_from_stream_buffer)
                 self.ask = float(data["data"][0]["best_ask_price"])
 
-            if(self.paused):
-                time.sleep(5)
+            while(self.paused):
+                time.sleep(3)
             time.sleep(self.a)
-        self.shut_down_count += 1
+        self.binance_websocket_api_manager.stop_manager_with_all_streams() #Stops stream for both threads
+        self.shut_down_count += 2
 
     #main functions
     def run(self,loadingbar=False):
+
+        # Start loading spinner
         if(loadingbar):
-            # Start loading spinner
-            spinner = yaspin(Spinners.earth, text="Transaction handler loading...")
+            spinner = yaspin(Spinners.earth, text="transaction handler loading...")
             spinner.start()
 
         self.stream_bids_Thread.start()
-        self.stream_asks_Thread.start()
         while(self.ask is None or self.bid is None):
             time.sleep(1/2)
 
@@ -619,9 +633,40 @@ class Transaction(): #TODO not working yet only layout
         return self.profit
 
 
-man = Manager()
-man.run()
+def thread_display(str):
+    #TODO remove
+    print(str, len(threading.enumerate()),threading.enumerate())
 
-# tran = Transaction("BNB/BTC")
-# tran.run(loadingbar=True)
-# tran.purchase()
+#
+# # man = Manager()
+# # man.run()
+# #
+# # # display_T = threading.Thread(target=thread_display, name="display_thrds_thread")
+# # # display_T.start()
+# # time.sleep(2*60)
+#
+# print("NOTE: shutting down")
+# man.shutdown_boxes()
+# print("NOTE: FINITO")
+#
+# # tran = Transaction("BNB/BTC")
+# # tran.run(loadingbar=True)
+# # tran.purchase()
+
+# thread_display("STARTINGRAD")
+# rad = Radar()
+# rad.run()
+# time.sleep(2*60)
+# rad.stop()
+# thread_display("STOPINGRAD")
+# thread_display("STARTINGTRAN")
+tran = Transaction("BNB/BTC")
+tran.run(loadingbar=True)
+print("MEOW")
+time.sleep(35)
+tran.stop()
+print("MEOW2")
+thread_display("STOPINGTRAN")
+# man = Manager()
+# man.run()
+# man.stop()
