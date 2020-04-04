@@ -346,10 +346,10 @@ class Box:
         self.SUPER.pause_others(self.symbol_ccxt)
         self.SUPER.in_order = True
         self.tran.purchase()
-        self.total_profit += self.tran.get_profit()  # TODO fix
+        self.SUPER.total_profit += self.tran.get_profit()  # TODO fix
         self.tran.reset()
         self.SUPER.in_order = False
-        print("PROFIT->", self.total_profit)
+        print("TOTALPROFIT->", self.SUPER.total_profit)
         self.SUPER.pause_others(self.symbol_ccxt, pause=False)
 
     def stop(self):
@@ -372,8 +372,8 @@ class Radar:
 
     # Initialization
     def __init__(self, SUPER):
-        print("SELF", self)
-        print("SUPER", SUPER)
+        # print("SELF", self)
+        # print("SUPER", SUPER)
         self.SUPER = SUPER
 
         # TODO remove
@@ -397,7 +397,6 @@ class Radar:
         refined_mega_markets = self.SUPER.get_markets()
         bar = tqdm(total=len(refined_mega_markets), position=0, leave=False,
                    bar_format="{l_bar}%s{bar}%s{r_bar}" % (Fore.GREEN, Fore.RESET))
-        time1 = time.time()  # TODO remove
 
         for x in refined_mega_markets:
             change24temp = self.get_change_24hr(x)
@@ -412,8 +411,7 @@ class Radar:
                 break
 
         bar.close()
-        time2 = time.time()  # TODO remove
-        print(time2 - time1)  # todo remove
+
         if (len(ref_list) > 2):
             m1 = None
             m2 = None
@@ -451,7 +449,7 @@ class Radar:
         # # TODO remove---
 
         print("Scan Completed", ref_list, len(self.SUPER.get_markets()))
-        if (len(refined_mega_markets) <= 1):
+        if (len(refined_mega_markets) < 2):
             print("load_markets()")
             self.SUPER.load_markets(store=True)
 
@@ -519,7 +517,7 @@ class Radar:
                 for s in scan_l:
                     if (len(self.SUPER.box_list) < 2):
                         self.SUPER.box_list_append(s)
-                        print("append", s)
+                        #print("append", s)
 
                 # TODO remove
                 print("--current boxes---")
@@ -533,12 +531,12 @@ class Radar:
 
             if (len(self.SUPER.box_list) < 2):
                 for  x in range(0, 3):
-                    time.sleep(20)
+                    time.sleep(10)
                     if(not self.stay_alive):
                         break
             else:
-                for x in range(0, 60):
-                    time.sleep(20)
+                for x in range(0, 3):
+                    time.sleep(25)
                     if(not self.stay_alive):
                         break
 
@@ -594,9 +592,9 @@ class Transaction:  # TODO not working yet only layout
                     Thresh = best_bid - (0.02 / 100) * best_bid
                     Goal = best_bid + (0.02 / 100) * best_bid
                     i += 1
-                print("GOAL", round(best_bid, 5))
+                print("GOAL", "{:.8f}".format(best_bid))
             if (best_bid < Thresh and (best_bid - self.purchase_price) > 0):
-                print("SELL", round(best_bid, 5))  # TODO make sell() function
+                print("SELL", "{:.8f}".format(best_bid))  # TODO make sell() function
                 self.sell(best_bid)  # TODO change this
                 break
 
@@ -619,7 +617,7 @@ class Transaction:  # TODO not working yet only layout
             time.sleep(self.a)
 
         self.purchase_price = self.BOX.ask  # Change this later
-        print("Order Submitted:", self.symbol_unicorn, self.purchase_price)  # TODO remove
+        print("Order Submitted:", self.symbol_unicorn, "{:.8f}".format(self.purchase_price))  # TODO remove
 
     def reset(self):
         self.profit = 0
@@ -645,28 +643,4 @@ if __name__ == "__main__":
     man = Manager()
     man.run()
 
-    time.sleep(2*60)
-    while(man.in_order):
-        time.sleep(1)
-
-    print("SHUT")
-    man.shutdown()
-    thread_display()
-    time.sleep(30)
-    thread_display()
-    print("BOOL",man.rad.stay_alive)
-    thread_display()
-
-
-    # print("SHUTDOWN BOXES")
-    # man.shutdown_boxes()
-
-    # print("SHUTDOWN")
-    # man.shutdown()
-
-
-    # while (1):
-    #     print(man.box_list)
-    #     thread_display()
-    #     time.sleep(60)
 
