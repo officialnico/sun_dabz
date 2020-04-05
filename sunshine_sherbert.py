@@ -532,6 +532,7 @@ class Radar:
             if (len(self.SUPER.box_list) < 2):
                 for  x in range(0, 3):
                     time.sleep(10)
+
                     if(not self.stay_alive):
                         break
             else:
