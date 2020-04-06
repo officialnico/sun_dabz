@@ -1,18 +1,19 @@
 # TODO accurate bid ask prices
 import ccxt
 import time
-import pprint
 from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
 from unicorn_fy.unicorn_fy import UnicornFy
+
 import threading
 import os
 import datetime
 import sys
+
 from tqdm import tqdm
 from colorama import Fore
-
 from yaspin import yaspin
 from yaspin.spinners import Spinners
+
 
 
 class Manager:
@@ -22,8 +23,11 @@ class Manager:
         self.in_order = in_order
         self.a = 1
         self.box_list = list()
+        self.total_profit = 0
+
         self.exchange = ccxt.binance({'enableRateLimit': True})
         self.stay_alive = True
+
 
         if (mega_markets is None):
             self.mega_markets = self.load_markets()
@@ -69,6 +73,9 @@ class Manager:
     # SuperClass Variable fetchers/getters: a (time coefficient), in_order, box_list
 
     def box_list_append(self, symbol_ccxt):
+        for x in self.box_list:
+            if(x.get_symbol() == symbol_ccxt):
+                return
         b = Box(self, symbol_ccxt)
         b.run()
         self.box_list.append(b)
@@ -438,19 +445,8 @@ class Radar:
 
         self.SUPER.set_markets(refined_mega_markets)
 
-        # #TODO remove---
-        # for x in refined_mega_markets:
-        #     change1hr = self.get_change_1hr(x)
-        #     vol24 = self.get_volume_24hr(x)
-        #     print(x)
-        #     print("\t","change24temp<3", change24temp<3,change24temp)
-        #     print("\t", "change1hr<0.2", change1hr<0.2,change1hr)
-        #     print("\t", "vol24<250033", vol24<250033,vol24)
-        # # TODO remove---
-
-        print("Scan Completed", ref_list, len(self.SUPER.get_markets()))
+        print("Scan Completed", ref_list)
         if (len(refined_mega_markets) < 2):
-            print("load_markets()")
             self.SUPER.load_markets(store=True)
 
         return ref_list
@@ -524,7 +520,6 @@ class Radar:
                 for x in self.SUPER.box_list:
                     print(x)
                 print("------------------")
-                print("current_boxes", len(threading.enumerate()), threading.enumerate())
 
             while(self.paused):
                 time.sleep(5)
