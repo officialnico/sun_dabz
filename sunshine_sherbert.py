@@ -1,25 +1,26 @@
-# TODO accurate bid ask prices
-import ccxt
 import time
-from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
-from unicorn_fy.unicorn_fy import UnicornFy
-
 import threading
 import os
 import datetime
 import sys
+import webbrowser
 
 from tqdm import tqdm
 from colorama import Fore
 from yaspin import yaspin
 from yaspin.spinners import Spinners
 
+import ccxt
+from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
+from unicorn_fy.unicorn_fy import UnicornFy
 
 
 class Manager:
 
     # Initialization
     def __init__(self, in_order=False, a=1, mega_markets=None):
+
+        #Super Variables
         self.in_order = in_order
         self.a = 1
         self.box_list = list()
@@ -28,6 +29,9 @@ class Manager:
         self.exchange = ccxt.binance({'enableRateLimit': True})
         self.stay_alive = True
 
+        if os.name == 'nt':
+            chrome_path = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+            webbrowser.register('chrome', None, webbrowser.BackgroundBrowser(chrome_path))
 
         if (mega_markets is None):
             self.mega_markets = self.load_markets()
@@ -39,11 +43,6 @@ class Manager:
         self.rad = Radar(self)
         self.rad.run()
 
-    def shutdown_boxes(self):
-        if (self.box_list):
-            for x in self.box_list:
-                x.stop()
-
     def shutdown(self,override=False):
         self.stay_alive = False
         while(self.in_order):
@@ -52,6 +51,11 @@ class Manager:
         self.shutdown_boxes()
         self.rad.stay_alive = False
 
+    #Box Controls
+    def shutdown_boxes(self):
+        if (self.box_list):
+            for x in self.box_list:
+                x.stop()
 
     def pause_others(self, symbol_ccxt, pause=True):
 
@@ -71,11 +75,11 @@ class Manager:
                     x.unpause()
 
     # SuperClass Variable fetchers/getters: a (time coefficient), in_order, box_list
-
     def box_list_append(self, symbol_ccxt):
         for x in self.box_list:
             if(x.get_symbol() == symbol_ccxt):
                 return
+        self.open_chart(symbol_ccxt)
         b = Box(self, symbol_ccxt)
         b.run()
         self.box_list.append(b)
@@ -107,6 +111,12 @@ class Manager:
 
     def set_markets(self, new_mega_markets):
         self.mega_markets = new_mega_markets
+
+    #Utilities
+    def open_chart(self, symbol_ccxt):
+        web_symbol = symbol_ccxt.replace("/", "_")
+        url = "binance.com/en/trade/" + web_symbol
+        webbrowser.get('chrome').open_new(url)
 
 
 class Box:
@@ -383,12 +393,11 @@ class Radar:
         # print("SUPER", SUPER)
         self.SUPER = SUPER
 
-        # TODO remove
-        #print("radar init:", len(threading.enumerate()), threading.enumerate())
-
         self.stay_alive = True
         self.update_boxes_Thread = threading.Thread(target=self.update_boxes, name="update_boxes_Thread")  # Main Thread
         self.paused = False
+
+
 
     # Process
     def run(self):
@@ -452,15 +461,6 @@ class Radar:
         return ref_list
 
     # Data retrieval
-    def get_volume_24hr(self, symbol_ccxt):  # TODO try using 1hr volume instead to guarantee trades
-        try:
-            data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
-            return data_hour[0][5]
-        except ccxt.NetworkError as e:
-            print(e)
-            time.sleep(1)
-            self.get_volume_24hr(symbol_ccxt)
-
     def get_change_24hr(self, symbol_ccxt):
         try:
             tick = self.SUPER.exchange.fetchTicker(symbol_ccxt)
@@ -469,6 +469,15 @@ class Radar:
             print(e)
             time.sleep(1)
             self.get_change_24hr(symbol_ccxt)
+
+    def get_volume_24hr(self, symbol_ccxt):  # TODO try using 1hr volume instead to guarantee trades
+        try:
+            data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
+            return data_hour[0][5]
+        except ccxt.NetworkError as e:
+            print(e)
+            time.sleep(1)
+            self.get_volume_24hr(symbol_ccxt)
 
     def get_change_1hr(self, symbol_ccxt):
         try:
@@ -483,6 +492,16 @@ class Radar:
             time.sleep(1)
             self.get_change_1hr(symbol_ccxt)
 
+    def get_volume_1hr(self):
+        try:
+            data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1h', limit=1)
+            print(data_hour[0][5]) #TODO remove
+            return data_hour[0][5]
+        except ccxt.NetworkError as e:
+            print(e)
+            time.sleep(1)
+            self.get_volume_1hr(symbol_ccxt)
+
     def get_change_1w(self, symbol_ccxt):
         try:
             data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1w', limit=2)
@@ -496,11 +515,14 @@ class Radar:
             time.sleep(1)
             self.get_change_1w(symbol_ccxt)
 
+    #Active updater
     def update_boxes(self):  # TODO fix boxes get deleted
 
         while (self.stay_alive):
-            while (self.SUPER.in_order):
+
+            while (self.SUPER.in_order or self.paused):
                 time.sleep(5)
+
             if (not self.SUPER.in_order):
                 scan_l = self.scan()
 
@@ -562,7 +584,7 @@ class Transaction:  # TODO not working yet only layout
     # transaction functions
     def purchase(self):
         self.a = 1 / 14
-        self.submit_order()
+        self.  der()
         self.maintain()
         self.a = 1
 
@@ -613,6 +635,9 @@ class Transaction:  # TODO not working yet only layout
             time.sleep(self.a)
 
         self.purchase_price = self.BOX.ask  # Change this later
+
+        self.BOX.SUPER.open_chart(self.BOX.symbol_ccxt)
+
         print("Order Submitted:", self.symbol_unicorn, "{:.8f}".format(self.purchase_price))  # TODO remove
 
     def reset(self):
@@ -636,7 +661,8 @@ if __name__ == "__main__":
         # TODO remove
         print(str, len(threading.enumerate()), threading.enumerate())
 
+
     man = Manager()
     man.run()
-
+#     man.open_chart("BNB/BTC")
 
