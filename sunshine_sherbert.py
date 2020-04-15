@@ -1,9 +1,11 @@
+#TODO check if starting Manager in_order=True works
 import time
 import threading
 import os
 import datetime
 import sys
 import webbrowser
+import signal
 
 from tqdm import tqdm
 from colorama import Fore
@@ -14,6 +16,8 @@ import ccxt
 from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
 from unicorn_fy.unicorn_fy import UnicornFy
 
+import sqlite3
+from os import path
 
 class Manager:
 
@@ -38,18 +42,27 @@ class Manager:
         else:
             self.mega_markets = mega_markets
 
-    # Main Functions
-    def run(self):
-        self.rad = Radar(self)
-        self.rad.run()
+        signal.signal(signal.SIGINT, self.keyboardInterruptHandler)
 
-    def shutdown(self,override=False):
-        self.stay_alive = False
-        while(self.in_order):
-            time.sleep(1)
-        print("Shutdown...")
-        self.shutdown_boxes()
-        self.rad.stay_alive = False
+    # Main Functions
+    def run(self, updater=True):
+        self.rad = Radar(self)
+        if(updater):
+            self.rad.run()
+
+    def shutdown(self,override=True):
+
+        try:
+            self.stay_alive = False
+            self.spinner = yaspin(Spinners.noise, text="Shutting down...")
+            self.spinner.start()
+            self.shutdown_boxes()
+            self.rad.stay_alive = False
+            if(override):
+                self.in_order = False #Dangerous
+        except Exception as e:
+            print(e)
+            quit()
 
     #Box Controls
     def shutdown_boxes(self):
@@ -75,11 +88,12 @@ class Manager:
                     x.unpause()
 
     # SuperClass Variable fetchers/getters: a (time coefficient), in_order, box_list
-    def box_list_append(self, symbol_ccxt):
+    def box_list_append(self, symbol_ccxt, open_chart=False):
         for x in self.box_list:
             if(x.get_symbol() == symbol_ccxt):
                 return
-        self.open_chart(symbol_ccxt)
+        if(open_chart):
+            self.open_chart(symbol_ccxt)
         b = Box(self, symbol_ccxt)
         b.run()
         self.box_list.append(b)
@@ -118,6 +132,9 @@ class Manager:
         url = "binance.com/en/trade/" + web_symbol
         webbrowser.get('chrome').open_new(url)
 
+    def keyboardInterruptHandler(self, signal, frame):
+        self.shutdown()
+
 
 class Box:
 
@@ -125,9 +142,6 @@ class Box:
     def __init__(self, SUPER, symbol_ccxt, messages=False):
 
         self.SUPER = SUPER
-
-        # TODO remove
-        #print("box init:", symbol_ccxt, len(threading.enumerate()), threading.enumerate())
 
         # symbols (different ones for CCXT API and Unicorn websocket API)
         self.symbol_ccxt = symbol_ccxt
@@ -148,9 +162,10 @@ class Box:
         # Transaction variables
         self.ask = None
         self.bid = None
-
         self.ask_quantity = None
         self.bid_quantity = None
+        self.buys = 0
+        self.sells = 0
 
         # Thread Control
         self.stay_alive = True
@@ -167,6 +182,7 @@ class Box:
 
         # Transaction data
         self.profit = None
+        self.dat = Data(self)
 
     def __str__(self):
         return "Box:" + self.symbol_ccxt
@@ -213,9 +229,16 @@ class Box:
                 close = self.price
 
                 self.change1hour = ((close - open) / open) * 100
+
+            # except Exception as e:
+            #     print("E:",e)
             except ccxt.NetworkError as e:
-                # print("Error (non critical):", e)
-                time.sleep(1)
+                print("EN:",e)
+            # except ccxt.NetworkError as e:
+            #     if(e is requests.exceptions.ConnectionError):
+            #         print("Connection ended shutting down")
+            #         self.man.shutdown()
+            #     time.sleep(1)
 
             while (self.paused):
                 time.sleep(5)
@@ -236,6 +259,7 @@ class Box:
                 self.change1min = ((close - close_prev) / close_prev) * 100
             except ccxt.NetworkError as e:
                 # print("Error (non critical):", e)
+                print("1M", e)
                 time.sleep(1)
 
             while (self.paused):
@@ -253,7 +277,7 @@ class Box:
                 close = self.price
                 self.change5min = ((close - open) / open) * 100
             except ccxt.NetworkError as e:
-                # print("Error (non critical):", e)
+                print("5M:",e)
                 time.sleep(1)
             time.sleep(self.SUPER.a * (1 / 2))
 
@@ -261,16 +285,6 @@ class Box:
         if (self.messages): print(self.symbol_ccxt, "5min stream succesfully shut down")
 
     # Functions
-    def printBools(self, clear=False):  # TODO Remove later
-        while (self.stay_alive):
-            print("change1min_PREV>=0.04", self.change1min_PREV >= 0.04, round(self.change1min_PREV, 3), "%")
-            print("change1min>=0.07", self.change1min >= 0.07, round(self.change1min, 3), "%")
-            print("change5min>=0.22", self.change5min >= 0.22, round(self.change5min, 3), "%")
-            print("change1hour>=0.3", self.change1hour >= 0.3, round(self.change1hour, 3), "%")
-
-            time.sleep(1 * self.SUPER.a)
-            if clear: clearScreen()
-
     def ccxtToUnicorn(self, s):
         s = s.replace('/', "")
         s = s.lower()
@@ -292,7 +306,7 @@ class Box:
     def main(self):
 
         # Display Initiation
-        print(self.symbol_ccxt, self.tran.printTime(display=False))
+        print(self.symbol_ccxt, self.printTime(display=False),"VOL24:",self.SUPER.rad.get_volume_24hr(self.symbol_ccxt))
 
         while (self.stay_alive):
 
@@ -334,8 +348,8 @@ class Box:
         self.hr_candles_Thread.start()
         self.min5_candles_Thread.start()
 
-        while (
-                self.change1min is None or self.change1min_PREV is None or self.change1hour is None or self.change5min is None or self.change24hr is None or self.ask is None or self.bid is None):  # TODO check tran
+        while (self.change1min is None or self.change1min_PREV is None or self.change1hour is None or self.change5min is None
+                    or self.change24hr is None or self.ask is None or self.bid is None):  # TODO check tran
 
             if (self.change1min is None):
                 spinner.text = "loading change1min"
@@ -358,6 +372,7 @@ class Box:
         spinner.stop()
 
         self.main_Thread.start()
+        self.dat.open()
 
     def purchase(self):
         self.SUPER.pause_others(self.symbol_ccxt)
@@ -366,15 +381,17 @@ class Box:
         self.SUPER.total_profit += self.tran.get_profit()  # TODO fix
         self.tran.reset()
         self.SUPER.in_order = False
-        print("TOTALPROFIT->", self.SUPER.total_profit)
+        print("TOTALPROFIT->", int(self.SUPER.total_profit))
         self.SUPER.pause_others(self.symbol_ccxt, pause=False)
 
     def stop(self):
+        self.dat.close()
         if (self.messages): print(self.symbol_ccxt, "Shutting down...")
         self.stay_alive = False
         while (self.shut_down_count != 6):
             time.sleep(1 / 3)
 
+        self.dat.close()
         print(self.symbol_ccxt, "Succesfully Closed")
 
     # Pausing
@@ -397,8 +414,6 @@ class Radar:
         self.update_boxes_Thread = threading.Thread(target=self.update_boxes, name="update_boxes_Thread")  # Main Thread
         self.paused = False
 
-
-
     # Process
     def run(self):
         self.update_boxes_Thread.start()
@@ -416,8 +431,9 @@ class Radar:
 
         for x in refined_mega_markets:
             change24temp = self.get_change_24hr(x)
-            if (change24temp >= 4 and self.get_change_1hr(x) >= 0.3 and self.get_volume_24hr(x) > 270033):
+            if (change24temp >= 4 and self.get_change_1hr(x) >= 0.3 and self.get_volume_24hr(x) > 270033): #369214.97
                 ref_list.append(x)
+
             elif (change24temp < 3 or self.get_change_1hr(x) < 0.2 or self.get_volume_24hr(x) < 250033):
                 refined_mega_markets.remove(x)
                 bar.update(1)
@@ -454,7 +470,8 @@ class Radar:
 
         self.SUPER.set_markets(refined_mega_markets)
 
-        print("Scan Completed", ref_list)
+        if(self.stay_alive and ref_list):
+            print("Scan Completed", ref_list)
         if (len(refined_mega_markets) < 2):
             self.SUPER.load_markets(store=True)
 
@@ -466,7 +483,7 @@ class Radar:
             tick = self.SUPER.exchange.fetchTicker(symbol_ccxt)
             return tick['percentage']
         except ccxt.NetworkError as e:
-            print(e)
+            print("RC24:",e)
             time.sleep(1)
             self.get_change_24hr(symbol_ccxt)
 
@@ -475,7 +492,7 @@ class Radar:
             data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
             return data_hour[0][5]
         except ccxt.NetworkError as e:
-            print(e)
+            print("V24R:",e)
             time.sleep(1)
             self.get_volume_24hr(symbol_ccxt)
 
@@ -488,17 +505,16 @@ class Radar:
             change1hour = ((close - open) / open) * 100
             return change1hour
         except ccxt.NetworkError as e:
-            print(e)
+            print("C1R",e)
             time.sleep(1)
             self.get_change_1hr(symbol_ccxt)
 
     def get_volume_1hr(self):
         try:
             data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1h', limit=1)
-            print(data_hour[0][5]) #TODO remove
             return data_hour[0][5]
         except ccxt.NetworkError as e:
-            print(e)
+            print("V24R",e)
             time.sleep(1)
             self.get_volume_1hr(symbol_ccxt)
 
@@ -511,11 +527,41 @@ class Radar:
             change1w = ((close - open) / open) * 100
             return change1w
         except ccxt.NetworkError as e:
-            print(e)
+            print("C1WR",e)
             time.sleep(1)
             self.get_change_1w(symbol_ccxt)
 
-    #Active updater
+    def get_change_1yr(self, symbol_ccxt):
+        try:
+            data_hour = self.BOX.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1M', limit=12)
+            open = data_hour[0][3]
+            l = len(data_hour)-1
+            if(l<0):
+                print("Error#537")
+                return None
+            close = data_hour[l][4]
+            change1yr = ((close - open) / open) * 100
+
+            return change1yr
+        except ccxt.NetworkError as e:
+            print("C1YR",e)
+            time.sleep(1)
+            self.get_change_1yr(symbol_ccxt)
+
+    def get_change_10min(self, symbol_ccxt):
+        try:
+            data_hour = self.BOX.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='5m', limit=3)
+            open = data_hour[0][4]
+            close = data_hour[2][4]
+
+            change1yr = ((close - open) / open) * 100
+            return change1yr
+        except ccxt.NetworkError as e:
+            print("C10mR:",e)
+            time.sleep(1)
+            self.get_change_10(symbol_ccxt)
+
+    #Actives updater
     def update_boxes(self):  # TODO fix boxes get deleted
 
         while (self.stay_alive):
@@ -537,35 +583,34 @@ class Radar:
                         self.SUPER.box_list_append(s)
                         #print("append", s)
 
-                # TODO remove
-                print("--current boxes---")
-                for x in self.SUPER.box_list:
-                    print(x)
-                print("------------------")
+                #Display boxes
+                if(self.SUPER.stay_alive and not self.SUPER.in_order):
+                    print("--current boxes---")
+                    for x in self.SUPER.box_list:
+                        print(x)
+                    print("------------------")
 
             while(self.paused):
                 time.sleep(5)
 
             if (len(self.SUPER.box_list) < 2):
-                for  x in range(0, 3):
-                    time.sleep(10)
+                for  x in range(0, 35): #Todo lower numbers
+                    time.sleep(1)
 
                     if(not self.stay_alive):
                         break
             else:
-                for x in range(0, 3):
-                    time.sleep(25)
+                for x in range(0, 65):
+                    time.sleep(1)
                     if(not self.stay_alive):
                         break
-
-        print("update_boxes shut")
+        self.SUPER.spinner.stop()
 
 
 class Transaction:  # TODO not working yet only layout
 
     # Initialize
     def __init__(self, BOX, symbol_unicorn):
-        print("BOX", BOX)
         self.BOX = BOX
 
         self.purchase_price = None
@@ -578,13 +623,10 @@ class Transaction:  # TODO not working yet only layout
         self.sell_price = None
         self.budget = 0.0092  # 50 USD in BTC
 
-        # self.binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.com")  # websocket connection
-        # self.binance_websocket_api_manager.create_stream(["ticker"], [self.symbol_unicorn])
-
     # transaction functions
     def purchase(self):
         self.a = 1 / 14
-        self.  der()
+        self.submit_order()
         self.maintain()
         self.a = 1
 
@@ -592,6 +634,8 @@ class Transaction:  # TODO not working yet only layout
     def sell(self, best_bid):
         self.sell_price = best_bid  # TODO fix to work with binance
         self.profit = self.sell_price - self.purchase_price
+        self.BOX.buys += 1
+        self.BOX.dat.sell()
         return self.BOX.bid
 
     def maintain(self):
@@ -621,22 +665,21 @@ class Transaction:  # TODO not working yet only layout
 
         print(self.profit)
         s = ""
-        s = self.printTime() + " " + str(self.purchase_price) + str(self.sell_price) + " " + str(self.profit) + "\n"
+        s = self.BOX.printTime() + " " + str(self.purchase_price) + str(self.sell_price) + " " + str(self.profit) + "\n"
         print(s)
+
+        self.BOX.sells += 1
 
     def submit_order(self):  # Sumbits the order to binance and waits until the order is filled to proceed
 
         # filled = False
         filled = True  # TODO remove
-
-        # TODO submit bid and dont come back until success
-
+        #submit bid and dont come back until success
         while (not filled):
             time.sleep(self.a)
-
         self.purchase_price = self.BOX.ask  # Change this later
-
-        self.BOX.SUPER.open_chart(self.BOX.symbol_ccxt)
+        self.BOX.buys += 1
+        self.BOX.dat.buy()
 
         print("Order Submitted:", self.symbol_unicorn, "{:.8f}".format(self.purchase_price))  # TODO remove
 
@@ -645,15 +688,206 @@ class Transaction:  # TODO not working yet only layout
         self.sell_price = None
 
     # Util
-    def printTime(self, display=True):  # TODO double method you could just make the box use this
-        now = datetime.datetime.now()
-        s = now.strftime("%Y-%m-%d %H:%M:%S")
-        if (display): print(s)
-        return s
-
     def get_profit(self):
         return self.profit
 
+
+class Data(Radar):
+
+    def __init__(self, BOX):
+
+        #Inheritance
+        self.BOX = BOX
+        self.SUPER = BOX.SUPER
+
+        #Performance data
+        self.startTime_box = None
+        self.startTime_transaction = None
+
+        #Logs
+        self.log = ""
+
+        #SQLite Connector
+        self.symbol_ccxt = BOX.symbol_ccxt
+        self.conn = sqlite3.connect("transactions.db",timeout=10)
+        self.c = self.conn.cursor()
+
+        #Empty Database Check
+        self.c.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        if(not self.c.fetchall()):
+            self.initialize()
+
+    #SQLite Database Initializer
+    def initialize(self):
+
+        self.c.execute("""CREATE TABLE transactions (
+
+                        box_hash integer,
+                        datetime text,
+                        symbol text,
+
+                        vol24 double,
+                        vol1hr double,
+                        change1yr double,
+                        change24hr double,
+                        change1hr double,
+                        change10min double,
+                        change5min double,
+                        change1min double,
+                        change1min_prev double,
+
+                        purchase_price double,
+                        sell_price double,
+                        quantity double,
+                        profit double,
+
+                        duration_of_cycle double,
+                        program_version double
+                )""")
+
+        self.c.execute("""CREATE TABLE box_history (
+
+                        box_hash integer,
+                        datetime text,
+                        symbol text,
+
+                        vol24 double,
+                        vol1hr double,
+                        change1yr double,
+                        change24hr double,
+                        change1hr double,
+                        change10min double,
+                        change5min double,
+                        change1min double,
+                        change1min_prev double,
+
+                        profit double,
+                        num_buys integer,
+                        num_sales integer,
+
+                        duration double,
+                        program_version double
+
+                )""")
+
+        self.conn.commit()
+        print("Database Initialized")
+
+    #main functions
+    def open(self):
+
+        self.startTime_box = time.time()
+
+        self.box_hash = hash(self.BOX)
+        datetime = self.BOX.printTime(display=False)
+        symbol = self.BOX.symbol_ccxt
+
+        vol24 = Radar.get_volume_24hr(self, self.symbol_ccxt)
+        vol1hr = Radar.get_change_1yr(self, self.symbol_ccxt)
+        change1yr = Radar.get_change_1yr(self, self.symbol_ccxt)
+        change24hr=self.BOX.change24hr
+        change1hr=self.BOX.change1hour
+        change10min=Radar.get_change_10min(self, self.symbol_ccxt)
+        change5min=self.BOX.change5min
+        change1min=self.BOX.change1min
+        change1min_PREV=self.BOX.change1min_PREV
+
+        duration = None
+        program_version = self.last_mod()
+
+        self.c.execute("""INSERT INTO box_history (box_hash, datetime, symbol, vol24, vol1hr, change1yr,
+                        change24hr, change1hr, change10min, change5min, change1min, change1min_PREV, program_version) VALUES (?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (self.box_hash, datetime, symbol, vol24, vol1hr, change1yr,
+                            change24hr, change1hr, change10min, change5min, change1min, change1min_PREV, program_version)
+                       )
+
+        self.conn.commit()
+
+    def buy(self):
+
+        conn = sqlite3.connect("transactions.db", timeout=10)
+        c = conn.cursor()
+        self.startTime_transaction = time.time()
+
+        datetime = self.BOX.printTime(display=False)
+        symbol = self.BOX.symbol_ccxt
+        vol24 = Radar.get_volume_24hr(self, self.symbol_ccxt)
+        vol1hr = Radar.get_change_1yr(self, self.symbol_ccxt)
+        change1yr = Radar.get_change_1yr(self, self.symbol_ccxt)
+        change24hr=self.BOX.change24hr
+        change1hr=self.BOX.change1hour
+        change10min=Radar.get_change_10min(self, self.symbol_ccxt)
+        change5min=self.BOX.change5min
+        change1min=self.BOX.change1min
+        change1min_PREV=self.BOX.change1min_PREV
+        purchase_price = int(self.BOX.tran.purchase_price)
+        program_version = self.last_mod()
+
+        c.execute("""INSERT INTO transactions 
+                    (box_hash, datetime, symbol, vol24, vol1hr, change1yr,
+                    change24hr, change1hr, change10min, 
+                    change5min, change1min, change1min_PREV, purchase_price, program_version) 
+                    VALUES (?, ?, ?, ?,?, ?, ?,?, ?, ?, ?, ?, ?, ?)
+                    """, (self.box_hash, datetime, symbol, vol24, vol1hr, change1yr,
+                        change24hr, change1hr, change10min, change5min, change1min,
+                          change1min_PREV, purchase_price, program_version)
+                    )
+
+        conn.commit()
+
+    def sell(self):
+
+        duration_transaction = time.time() - self.startTime_transaction
+        profit = self.BOX.tran.profit
+        sell_price = self.BOX.tran.sell_price
+        quantity = None #TODO fix
+
+        conn = sqlite3.connect("transactions.db", timeout=10)
+        c = conn.cursor()
+
+        c.execute("""
+                    UPDATE transactions 
+                    SET profit = ?, duration_of_cycle = ?, sell_price = ?, quantity = ? 
+                    WHERE box_hash = ?;
+                    """, (profit, duration_transaction, sell_price, quantity, self.box_hash))
+
+        conn.commit()
+
+    def close(self):
+        duration_box = time.time() - self.startTime_box
+        box_profit = self.BOX.total_profit
+
+        conn = sqlite3.connect("transactions.db", timeout=10)
+        c = conn.cursor()
+        c.execute("""
+                    UPDATE box_history 
+                    SET profit = ?, duration = ?, num_buys = ?, num_sales = ? 
+                    WHERE box_hash = ?;
+                    """, (box_profit, duration_box, self.BOX.buys, self.BOX.sells, self.box_hash))
+        conn.commit()
+
+    #Util
+    def log(self, str):
+        self.log += str + "\n"
+
+    def timestamp_to_date(self, timestamp):
+        dt_object = datetime.datetime.fromtimestamp(timestamp)
+        s = str(dt_object)
+        i = s.index('.')
+        s = s[:i]
+        return s
+
+    def last_mod(self, filename="sunshine_sherbert.py"):
+        lastmodified = os.stat(filename).st_mtime
+        return self.timestamp_to_date(lastmodified)
+
+
+class NoInternet:
+    def __init__(self):
+        pass
+
+    def noInternet(self):
+        pass
 
 if __name__ == "__main__":
 
@@ -662,7 +896,14 @@ if __name__ == "__main__":
         print(str, len(threading.enumerate()), threading.enumerate())
 
 
+    # try:
+    #     man = Manager()
+    #     man.run()
+    # except ConnectionClosed as e:
+    #     print(e)
+
     man = Manager()
-    man.run()
-#     man.open_chart("BNB/BTC")
+    man.run(updater=True)
+    #b = Box(man, "BNB/BTC")
+    #b.run()
 
