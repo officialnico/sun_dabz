@@ -431,6 +431,9 @@ class Radar:
 
         for x in refined_mega_markets:
             change24temp = self.get_change_24hr(x)
+            while(change24temp is None): #TODO check over, should help
+                change24temp = self.get_change_24hr(x)
+                time.sleep(2)
             if (change24temp >= 4 and self.get_change_1hr(x) >= 0.3 and self.get_volume_24hr(x) > 270033): #369214.97
                 ref_list.append(x)
 
@@ -489,7 +492,11 @@ class Radar:
 
     def get_volume_24hr(self, symbol_ccxt):  # TODO try using 1hr volume instead to guarantee trades
         try:
-            data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
+            data_hour = None
+            while(data_hour is None):
+                data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
+
+            print(symbol_ccxt,data_hour[0]) #TODO remove
             return data_hour[0][5]
         except ccxt.NetworkError as e:
             print("V24R:",e)
@@ -509,7 +516,7 @@ class Radar:
             time.sleep(1)
             self.get_change_1hr(symbol_ccxt)
 
-    def get_volume_1hr(self):
+    def get_volume_1hr(self, symbol_ccxt):
         try:
             data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1h', limit=1)
             return data_hour[0][5]
@@ -573,7 +580,8 @@ class Radar:
                 scan_l = self.scan()
 
                 for x in self.SUPER.box_list:
-                    if (x.get_symbol() not in scan_l and len(self.SUPER.box_list) == 2 and len(scan_l) == 2):
+                    if (x.get_symbol() not in scan_l and len(self.SUPER.box_list) == 2):
+                        print("STOP", x.get_symbol())
                         self.SUPER.box_list_remove(x)
                     elif (x.get_symbol() in scan_l):
                         scan_l.remove(x.get_symbol())
@@ -783,7 +791,7 @@ class Data(Radar):
         symbol = self.BOX.symbol_ccxt
 
         vol24 = Radar.get_volume_24hr(self, self.symbol_ccxt)
-        vol1hr = Radar.get_change_1yr(self, self.symbol_ccxt)
+        vol1hr = Radar.get_volume_1hr(self, self.symbol_ccxt)
         change1yr = Radar.get_change_1yr(self, self.symbol_ccxt)
         change24hr=self.BOX.change24hr
         change1hr=self.BOX.change1hour
@@ -797,8 +805,9 @@ class Data(Radar):
 
         self.c.execute("""INSERT INTO box_history (box_hash, datetime, symbol, vol24, vol1hr, change1yr,
                         change24hr, change1hr, change10min, change5min, change1min, change1min_PREV, program_version) VALUES (?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (self.box_hash, datetime, symbol, vol24, vol1hr, change1yr,
-                            change24hr, change1hr, change10min, change5min, change1min, change1min_PREV, program_version)
+                        """, (self.box_hash, datetime, symbol, vol24, "{:.1f}".format(vol1hr), "{:.8f}".format(change1yr),
+                            "{:.8f}".format(change24hr), "{:.8f}".format(change1hr), "{:.8f}".format(change10min), "{:.8f}".format(change5min),
+                              "{:.8f}".format(change1min), "{:.8f}".format(change1min_PREV), program_version)
                        )
 
         self.conn.commit()
@@ -812,7 +821,7 @@ class Data(Radar):
         datetime = self.BOX.printTime(display=False)
         symbol = self.BOX.symbol_ccxt
         vol24 = Radar.get_volume_24hr(self, self.symbol_ccxt)
-        vol1hr = Radar.get_change_1yr(self, self.symbol_ccxt)
+        vol1hr = Radar.get_volume_1hr(self, self.symbol_ccxt)
         change1yr = Radar.get_change_1yr(self, self.symbol_ccxt)
         change24hr=self.BOX.change24hr
         change1hr=self.BOX.change1hour
@@ -820,7 +829,7 @@ class Data(Radar):
         change5min=self.BOX.change5min
         change1min=self.BOX.change1min
         change1min_PREV=self.BOX.change1min_PREV
-        purchase_price = int(self.BOX.tran.purchase_price)
+        purchase_price = self.BOX.tran.purchase_price
         program_version = self.last_mod()
 
         c.execute("""INSERT INTO transactions 
@@ -828,9 +837,9 @@ class Data(Radar):
                     change24hr, change1hr, change10min, 
                     change5min, change1min, change1min_PREV, purchase_price, program_version) 
                     VALUES (?, ?, ?, ?,?, ?, ?,?, ?, ?, ?, ?, ?, ?)
-                    """, (self.box_hash, datetime, symbol, vol24, vol1hr, change1yr,
-                        change24hr, change1hr, change10min, change5min, change1min,
-                          change1min_PREV, purchase_price, program_version)
+                    """, (self.box_hash, datetime,  symbol, vol24, "{:.1f}".format(vol1hr), "{:.8f}".format(change1yr),
+                        "{:.8f}".format(change24hr), "{:.8f}".format(change1hr), "{:.8f}".format(change10min), "{:.8f}".format(change5min), "{:.8f}".format(change1min),
+                          "{:.8f}".format(change1min_PREV), "{:.8f}".format(purchase_price), program_version)
                     )
 
         conn.commit()
@@ -849,7 +858,7 @@ class Data(Radar):
                     UPDATE transactions 
                     SET profit = ?, duration_of_cycle = ?, sell_price = ?, quantity = ? 
                     WHERE box_hash = ?;
-                    """, (profit, duration_transaction, sell_price, quantity, self.box_hash))
+                    """, ("{:.8f}".format(profit), int(duration_transaction), "{:.8f}".format(sell_price), quantity, self.box_hash))
 
         conn.commit()
 
@@ -882,12 +891,6 @@ class Data(Radar):
         return self.timestamp_to_date(lastmodified)
 
 
-class NoInternet:
-    def __init__(self):
-        pass
-
-    def noInternet(self):
-        pass
 
 if __name__ == "__main__":
 
