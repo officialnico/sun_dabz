@@ -496,7 +496,6 @@ class Radar:
             while(data_hour is None):
                 data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1d', limit=1)
 
-            print(symbol_ccxt,data_hour[0]) #TODO remove
             return data_hour[0][5]
         except ccxt.NetworkError as e:
             print("V24R:",e)
