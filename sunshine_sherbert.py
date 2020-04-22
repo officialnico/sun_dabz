@@ -443,7 +443,8 @@ class Radar:
             bar.set_description("Scanning...".format(x))
             bar.update(1)
             if(not self.stay_alive):
-                break
+                bar.close()
+                return []
 
         bar.close()
 
@@ -905,7 +906,8 @@ if __name__ == "__main__":
     #     print(e)
 
     man = Manager()
-    man.run(updater=True)
+    man.run()
+    #man.run(updater=False)
     #b = Box(man, "BNB/BTC")
     #b.run()
 
