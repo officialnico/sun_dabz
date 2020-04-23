@@ -22,7 +22,7 @@ from os import path
 class Manager:
 
     # Initialization
-    def __init__(self, in_order=False, a=1, mega_markets=None):
+    def __init__(self, in_order=False, a=1, mega_markets=None, display=True):
 
         #Super Variables
         self.in_order = in_order
@@ -30,8 +30,10 @@ class Manager:
         self.box_list = list()
         self.total_profit = 0
 
+        os.chdir(sys.path[0])
         self.exchange = ccxt.binance({'enableRateLimit': True})
         self.stay_alive = True
+        self.display = display
 
         if os.name == 'nt':
             chrome_path = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
@@ -56,6 +58,8 @@ class Manager:
             self.stay_alive = False
             self.spinner = yaspin(Spinners.noise, text="Shutting down...")
             self.spinner.start()
+            if(not self.display):
+                self.spinner.stop()
             self.shutdown_boxes()
             self.rad.stay_alive = False
             if(override):
@@ -171,7 +175,7 @@ class Box:
         self.stay_alive = True
         self.shut_down_count = 0
         self.messages = messages
-        self.paused = False
+        self.paused = self.SUPER.in_order
 
         # Threads for streaming prices from both API's
         self.t1 = threading.Thread(target=self.stream, name="box_price&24hr_change")  # 24hr & Price stream from ccxt
@@ -333,16 +337,18 @@ class Box:
             return
 
         # Start loading spinner
-        spinner = yaspin(Spinners.moon, text="Box loading...")
-        spinner.start()
+        dis = self.SUPER.display
+        if(dis):
+            spinner = yaspin(Spinners.moon, text="Box loading...")
+            spinner.start()
 
         # Start Streams
         self.t1.start()
 
-        if (self.price is None): spinner.text = "loading price"
+        if (self.price is None):
+            if(dis): spinner.text = "loading price"
         while (self.price is None):
             time.sleep(1 / 3)
-        if (self.price is None): spinner.text = "loading tran"
 
         self.min_candles_Thread.start()
         self.hr_candles_Thread.start()
@@ -351,25 +357,27 @@ class Box:
         while (self.change1min is None or self.change1min_PREV is None or self.change1hour is None or self.change5min is None
                     or self.change24hr is None or self.ask is None or self.bid is None):  # TODO check tran
 
-            if (self.change1min is None):
-                spinner.text = "loading change1min"
-            elif (self.change1min_PREV is None):
-                spinner.text = "loading change1min_PREV"
-            elif (self.change1hour is None):
-                spinner.text = "loading change1hour"
-            elif (self.change5min is None):
-                spinner.text = "loading change5min"
-            elif (self.change24hr is None):
-                spinner.text = "loading change24hr"
-            elif (self.ask is None):
-                spinner.text = "loading tran.ask"
-            elif (self.bid is None):
-                spinner.text = "loading tran.bid"
+            if(dis):
+                if (self.change1min is None):
+                    spinner.text = "loading change1min"
+                elif (self.change1min_PREV is None):
+                    spinner.text = "loading change1min_PREV"
+                elif (self.change1hour is None):
+                    spinner.text = "loading change1hour"
+                elif (self.change5min is None):
+                    spinner.text = "loading change5min"
+                elif (self.change24hr is None):
+                    spinner.text = "loading change24hr"
+                elif (self.ask is None):
+                    spinner.text = "loading tran.ask"
+                elif (self.bid is None):
+                    spinner.text = "loading tran.bid"
 
             time.sleep(1 / 3)
 
         # End spinner
-        spinner.stop()
+        if(dis):
+            spinner.stop()
 
         self.main_Thread.start()
         self.dat.open()
@@ -381,7 +389,7 @@ class Box:
         self.SUPER.total_profit += self.tran.get_profit()  # TODO fix
         self.tran.reset()
         self.SUPER.in_order = False
-        print("TOTALPROFIT->", int(self.SUPER.total_profit))
+        print("TOTALPROFIT->", self.form(self.SUPER.total_profit))
         self.SUPER.pause_others(self.symbol_ccxt, pause=False)
 
     def stop(self):
@@ -400,6 +408,10 @@ class Box:
 
     def unpause(self):
         self.paused = False
+
+    #util
+    def form(self, s):
+        return "{:.8f}".format(s)
 
 
 class Radar:
@@ -426,8 +438,13 @@ class Radar:
         # Although this isnt pretty its efficient and it works, after being tested multiple times with different methods of execution
         ref_list = []
         refined_mega_markets = self.SUPER.get_markets()
-        bar = tqdm(total=len(refined_mega_markets), position=0, leave=False,
-                   bar_format="{l_bar}%s{bar}%s{r_bar}" % (Fore.GREEN, Fore.RESET))
+
+        dis = self.SUPER.display
+        if(dis):
+            bar = tqdm(total=len(refined_mega_markets), position=0, leave=False,
+                       bar_format="{l_bar}%s{bar}%s{r_bar}" % (Fore.GREEN, Fore.RESET))
+        else:
+            print("Scanning...", len(refined_mega_markets), "markets")
 
         for x in refined_mega_markets:
             change24temp = self.get_change_24hr(x)
@@ -439,14 +456,18 @@ class Radar:
 
             elif (change24temp < 3 or self.get_change_1hr(x) < 0.2 or self.get_volume_24hr(x) < 250033):
                 refined_mega_markets.remove(x)
-                bar.update(1)
-            bar.set_description("Scanning...".format(x))
-            bar.update(1)
-            if(not self.stay_alive):
-                bar.close()
-                return []
+                if(dis):
+                    bar.update(1)
 
-        bar.close()
+            if(dis):
+                bar.set_description("Scanning...".format(x))
+                bar.update(1)
+
+            if(not self.stay_alive or self.SUPER.in_order):
+                if(dis): bar.close()
+                return
+
+        if(dis):bar.close()
 
         if (len(ref_list) > 2):
             m1 = None
@@ -458,7 +479,7 @@ class Radar:
                 if (change_w > max_change):
                     max_change = change_w
                     max_symbol = x
-                bar.update(1)
+                if(dis): bar.update(1)
             m1 = max_symbol
             ref_list.remove(m1)
 
@@ -481,7 +502,7 @@ class Radar:
 
         return ref_list
 
-    # Data retrieval
+    # Request data retrieval
     def get_change_24hr(self, symbol_ccxt):
         try:
             tick = self.SUPER.exchange.fetchTicker(symbol_ccxt)
@@ -507,7 +528,8 @@ class Radar:
         try:
             data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1h', limit=2)
             open = data_hour[0][4]
-            close = data_hour[1][4]
+            if(len(data_hour)<2):print(data_hour, symbol_ccxt) #TODO remove
+            close = data_hour[len(data_hour)-1][4]
 
             change1hour = ((close - open) / open) * 100
             return change1hour
@@ -578,10 +600,10 @@ class Radar:
 
             if (not self.SUPER.in_order):
                 scan_l = self.scan()
+                if(not scan_l): (scan_l) #TODO remove
 
                 for x in self.SUPER.box_list:
                     if (x.get_symbol() not in scan_l and len(self.SUPER.box_list) == 2):
-                        print("STOP", x.get_symbol())
                         self.SUPER.box_list_remove(x)
                     elif (x.get_symbol() in scan_l):
                         scan_l.remove(x.get_symbol())
@@ -635,6 +657,7 @@ class Transaction:  # TODO not working yet only layout
     def purchase(self):
         self.a = 1 / 14
         self.submit_order()
+        self.BOX.buys += 1
         self.maintain()
         self.a = 1
 
@@ -642,7 +665,7 @@ class Transaction:  # TODO not working yet only layout
     def sell(self, best_bid):
         self.sell_price = best_bid  # TODO fix to work with binance
         self.profit = self.sell_price - self.purchase_price
-        self.BOX.buys += 1
+        self.BOX.sells += 1
         self.BOX.dat.sell()
         return self.BOX.bid
 
@@ -671,12 +694,14 @@ class Transaction:  # TODO not working yet only layout
             # print(Thresh)
             time.sleep(self.a)
 
-        print(self.profit)
+        print(self.profit, type(self.profit))
+
+        print('{:.8f}'.format(round(self.profit,8)))
         s = ""
-        s = self.BOX.printTime() + " " + str(self.purchase_price) + str(self.sell_price) + " " + str(self.profit) + "\n"
+        s = self.BOX.printTime() + " " + str(self.purchase_price) + str(self.sell_price) + " " + str('{:.8f}'.format(self.profit)) + "\n"
         print(s)
 
-        self.BOX.sells += 1
+
 
     def submit_order(self):  # Sumbits the order to binance and waits until the order is filled to proceed
 
@@ -832,10 +857,10 @@ class Data(Radar):
         purchase_price = self.BOX.tran.purchase_price
         program_version = self.last_mod()
 
-        c.execute("""INSERT INTO transactions 
+        c.execute("""INSERT INTO transactions
                     (box_hash, datetime, symbol, vol24, vol1hr, change1yr,
-                    change24hr, change1hr, change10min, 
-                    change5min, change1min, change1min_PREV, purchase_price, program_version) 
+                    change24hr, change1hr, change10min,
+                    change5min, change1min, change1min_PREV, purchase_price, program_version)
                     VALUES (?, ?, ?, ?,?, ?, ?,?, ?, ?, ?, ?, ?, ?)
                     """, (self.box_hash, datetime,  symbol, vol24, "{:.1f}".format(vol1hr), "{:.8f}".format(change1yr),
                         "{:.8f}".format(change24hr), "{:.8f}".format(change1hr), "{:.8f}".format(change10min), "{:.8f}".format(change5min), "{:.8f}".format(change1min),
@@ -855,8 +880,8 @@ class Data(Radar):
         c = conn.cursor()
 
         c.execute("""
-                    UPDATE transactions 
-                    SET profit = ?, duration_of_cycle = ?, sell_price = ?, quantity = ? 
+                    UPDATE transactions
+                    SET profit = ?, duration_of_cycle = ?, sell_price = ?, quantity = ?
                     WHERE box_hash = ?;
                     """, ("{:.8f}".format(profit), int(duration_transaction), "{:.8f}".format(sell_price), quantity, self.box_hash))
 
@@ -869,10 +894,10 @@ class Data(Radar):
         conn = sqlite3.connect("transactions.db", timeout=10)
         c = conn.cursor()
         c.execute("""
-                    UPDATE box_history 
-                    SET profit = ?, duration = ?, num_buys = ?, num_sales = ? 
+                    UPDATE box_history
+                    SET profit = ?, duration = ?, num_buys = ?, num_sales = ?
                     WHERE box_hash = ?;
-                    """, (box_profit, duration_box, self.BOX.buys, self.BOX.sells, self.box_hash))
+                    """, ("{:.8f}".format(box_profit), int(duration_box), self.BOX.buys, self.BOX.sells, self.box_hash))
         conn.commit()
 
     #Util
@@ -899,15 +924,9 @@ if __name__ == "__main__":
         print(str, len(threading.enumerate()), threading.enumerate())
 
 
-    # try:
-    #     man = Manager()
-    #     man.run()
-    # except ConnectionClosed as e:
-    #     print(e)
-
-    man = Manager()
-    man.run()
-    #man.run(updater=False)
-    #b = Box(man, "BNB/BTC")
-    #b.run()
-
+    if("-s" in sys.argv):
+        man = Manager(display=False)
+        man.run()
+    else:
+        man = Manager(display=False)
+        man.run()
