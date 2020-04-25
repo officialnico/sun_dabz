@@ -701,8 +701,6 @@ class Transaction:  # TODO not working yet only layout
         s = self.BOX.printTime() + " " + str(self.purchase_price) + str(self.sell_price) + " " + str('{:.8f}'.format(self.profit)) + "\n"
         print(s)
 
-
-
     def submit_order(self):  # Sumbits the order to binance and waits until the order is filled to proceed
 
         # filled = False
