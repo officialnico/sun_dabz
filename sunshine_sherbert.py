@@ -451,7 +451,7 @@ class Radar:
             while(change24temp is None): #TODO check over, should help
                 change24temp = self.get_change_24hr(x)
                 time.sleep(2)
-            if (change24temp >= 4 and self.get_change_1hr(x) >= 0.3 and self.get_volume_24hr(x) > 270033): #369214.97
+            if (change24temp >= 4 and self.get_change_1hr(x) >= 0.3 and self.get_volume_1hr(x) > 98247): #369214.97
                 ref_list.append(x)
 
             elif (change24temp < 3 or self.get_change_1hr(x) < 0.2 or self.get_volume_24hr(x) < 250033):
@@ -693,8 +693,6 @@ class Transaction:  # TODO not working yet only layout
 
             # print(Thresh)
             time.sleep(self.a)
-
-        print(self.profit, type(self.profit))
 
         print('{:.8f}'.format(round(self.profit,8)))
         s = ""
