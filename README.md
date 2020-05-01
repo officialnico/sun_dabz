@@ -27,6 +27,9 @@ Box(man, symbol)
 
 # Box
 Monitors a coin and controls the transaction object, telling it when to buy and sell
+# Run
+Starts the box on a separate thread
+
 
 # Transactions
 A swiss army knife of functions you would need to buy and sell
