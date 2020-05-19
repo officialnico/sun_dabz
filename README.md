@@ -18,7 +18,7 @@ Box(man, symbol)
   -> slower when in an order
   
 
-## scan():
+### scan():
 
 -> returns markets suitable for box creation 
       {s1, s2}
@@ -27,7 +27,7 @@ Box(man, symbol)
 
 # Box
 Monitors a coin and controls the transaction object, telling it when to buy and sell
-## Run()
+### Run()
 Starts the box on a separate thread
 
 
