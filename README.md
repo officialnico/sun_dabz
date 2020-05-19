@@ -4,7 +4,7 @@ The Simple idea is to buy low and sell high on binance 1 minute candles
 
 Box(man, symbol)
 
-# Radar
+## Radar
 ### update_boxes(): 
 
   -> scans
@@ -25,13 +25,13 @@ Box(man, symbol)
       
 -> searches through all markets and decreases the number by half until 0
 
-# Box
+## Box
 Monitors a coin and controls the transaction object, telling it when to buy and sell
 ### Run()
 Starts the box on a separate thread
 
 
-# Transactions
+## Transactions
 A swiss army knife of functions you would need to buy and sell
 
 
