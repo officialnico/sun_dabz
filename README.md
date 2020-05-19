@@ -1,9 +1,6 @@
 # Buying low, selling high
 The Simple idea is to buy low and sell high on binance 1 minute candles
 
-
-Box(man, symbol)
-
 ## Radar
 ### update_boxes(): 
 
