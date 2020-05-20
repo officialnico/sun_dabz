@@ -28,10 +28,11 @@ class Streamer:
         self.change1min = None
         self.change24hr = None
         self.change5min = None
+        self.ask = None
 
         threading.Thread(name="stream",target=self.stream).start()
-
-        self.run_async()
+        while(not self.ask): time.sleep(0.2)
+        threading.Thread(name="async_T", target=self.run_async).start
 
     async def run_async(self):
         coroutines = [self.stream_hour_candles(), self.stream_minute_candles()]
