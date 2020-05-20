@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 import asyncio
 import functools
@@ -28,11 +27,10 @@ class Streamer:
         self.change1min = None
         self.change24hr = None
         self.change5min = None
-        self.ask = None
 
         threading.Thread(name="stream",target=self.stream).start()
-        while(not self.ask): time.sleep(0.2)
-        threading.Thread(name="async_T", target=self.run_async).start
+
+        self.run_async()
 
     async def run_async(self):
         coroutines = [self.stream_hour_candles(), self.stream_minute_candles()]
@@ -82,7 +80,7 @@ class Streamer:
                 close = data_hour[1][4]
                 change1hour = ((close - open) / open) * 100
                 print(change1hour)
-                print("NIGER",change1hour)
+
             except ccxt.NetworkError as e:
                 print("EN:", e)
             #await self.exchange_async.close()
@@ -92,12 +90,12 @@ class Streamer:
 
         while (self.stay_alive):
             try:
-                print('sexymay')
+
                 data_min = await self.exchange_async.fetch_ohlcv(self.symbol_ccxt, timeframe='1m', limit=3)
-                print('sex')
+
                 open_prev = data_min[0][4]
                 close_prev = data_min[1][4]
-                print("00000")
+
                 self.change1min_PREV = ((close_prev - open_prev) / open_prev) * 100
                 close = self.price
                 self.change1min = ((close - close_prev) / close_prev) * 100
@@ -110,7 +108,19 @@ class Streamer:
             #await self.exchange_async.close()
             await asyncio.sleep(1)
 
+    async def stream_5min_candles(self):
+        while (self.stay_alive):
+            try:
+                data_hour = await self.exchange_async.fetch_ohlcv(self.symbol_ccxt, timeframe='5m', limit=2)
+                open = data_hour[0][4]
+                close = data_hour[1][4]
+                change1hour = ((close - open) / open) * 100
+                print(change1hour)
 
+            except ccxt.NetworkError as e:
+                print("EN:", e)
+            # await self.exchange_async.close()
+            await asyncio.sleep(1)
 
 if __name__ == '__main__':
 
