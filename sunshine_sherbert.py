@@ -13,16 +13,21 @@ from yaspin import yaspin
 from yaspin.spinners import Spinners
 
 import ccxt
+import ccxt.async_support as ccxt_a
 from unicorn_binance_websocket_api.unicorn_binance_websocket_api_manager import BinanceWebSocketApiManager
 from unicorn_fy.unicorn_fy import UnicornFy
 
 import sqlite3
 from os import path
+import asyncio
 
 class Manager:
 
     # Initialization
     def __init__(self, in_order=False, a=1, mega_markets=None, display=True):
+
+        self.exchange = ccxt.binance({'enableRateLimit': True, 'verbose': False})
+        self.exchange_async = getattr(ccxt_a, 'binance')({'enableRateLimit': True, 'verbose': False})  # 'verbose': True
 
         #Super Variables
         self.in_order = in_order
@@ -31,7 +36,6 @@ class Manager:
         self.total_profit = 0
 
         os.chdir(sys.path[0])
-        self.exchange = ccxt.binance({'enableRateLimit': True})
         self.stay_alive = True
         self.display = display
 
@@ -44,7 +48,7 @@ class Manager:
         else:
             self.mega_markets = mega_markets
 
-        signal.signal(signal.SIGINT, self.keyboardInterruptHandler)
+        #signal.signal(signal.SIGINT, self.keyboardInterruptHandler) TODO this is what turns it off
 
     # Main Functions
     def run(self, updater=True):
@@ -145,7 +149,9 @@ class Box:
     # Initialization
     def __init__(self, SUPER, symbol_ccxt, messages=False):
 
+        #Exchange and Manager
         self.SUPER = SUPER
+        self.exchange_async = self.SUPER.exchange_async
 
         # symbols (different ones for CCXT API and Unicorn websocket API)
         self.symbol_ccxt = symbol_ccxt
@@ -179,14 +185,18 @@ class Box:
 
         # Threads for streaming prices from both API's
         self.t1 = threading.Thread(target=self.stream, name="box_price&24hr_change")  # 24hr & Price stream from ccxt
-        self.min_candles_Thread = threading.Thread(target=self.stream_minute_candles, name="box_min_candles")
-        self.hr_candles_Thread = threading.Thread(target=self.stream_hour_candles, name="box_hour_candles")
-        self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle, name="box_min5_candles")
+        # self.min_candles_Thread = threading.Thread(target=self.stream_minute_candles, name="box_min_candles")
+        # self.hr_candles_Thread = threading.Thread(target=self.stream_hour_candles, name="box_hour_candles")
+        # self.min5_candles_Thread = threading.Thread(target=self.stream_5min_candle, name="box_min5_candles")
         self.main_Thread = threading.Thread(target=self.main, name="box_main")  # Main Thread
 
         # Transaction data
         self.profit = None
         self.dat = Data(self)
+
+        #Timing
+        self.prev_time = None
+        self.cur_time = None
 
     def __str__(self):
         return "Box:" + self.symbol_ccxt
@@ -225,68 +235,79 @@ class Box:
         self.shut_down_count += 2
         if (self.messages): print(self.symbol_ccxt, "24hr stream succesfully shut down", "\n")
 
-    def stream_hour_candles(self):
-        while (self.stay_alive):
+    async def stream_hour_candles(self):
+        while(self.stay_alive):
             try:
-                data_hour = self.SUPER.exchange.fetchOHLCV(self.symbol_ccxt, timeframe='1h', limit=2)
+                print('mrhat')
+                data_hour = await self.exchange_async.fetch_ohlcv(self.symbol_ccxt,timeframe='1h', limit=2)
+                print('epic')#TODO REMOVE
+                if(data_hour is None):
+                    print('data_hour none')
                 open = data_hour[0][4]
-                close = self.price
-
+                close = self.ask
                 self.change1hour = ((close - open) / open) * 100
-
-            # except Exception as e:
-            #     print("E:",e)
             except ccxt.NetworkError as e:
-                print("EN:",e)
-            # except ccxt.NetworkError as e:
-            #     if(e is requests.exceptions.ConnectionError):
-            #         print("Connection ended shutting down")
-            #         self.man.shutdown()
-            #     time.sleep(1)
+                print("EN:", e)
+            #await self.exchange_async.close()
+            await asyncio.sleep(self.SUPER.a)
 
-            while (self.paused):
-                time.sleep(5)
-            time.sleep(self.SUPER.a * (1 / 2))
+    async def stream_minute_candles(self):
 
-        self.shut_down_count += 1
-        if (self.messages): print(self.symbol_ccxt, "Hour stream succesfully shut down", "\n")
-
-    def stream_minute_candles(self):
         while (self.stay_alive):
             try:
-                data_min = self.SUPER.exchange.fetchOHLCV(self.symbol_ccxt, timeframe='1m', limit=3)
+                data_min = await self.exchange_async.fetch_ohlcv(self.symbol_ccxt, timeframe='1m', limit=3)
                 open_prev = data_min[0][4]
-                close_prev = data_min[1][4]
-
+                close_prev = self.ask
+                print(self.ask)
                 self.change1min_PREV = ((close_prev - open_prev) / open_prev) * 100
                 close = self.price
                 self.change1min = ((close - close_prev) / close_prev) * 100
+
+                if(self.prev_time): print('dur->',time.time()-self.prev_time)
+                self.prev_time = time.time()
+
+                print('>','c24',self.change24hr,'c1m',self.change1min,'c1mP', self.change1min_PREV)
+
             except ccxt.NetworkError as e:
-                # print("Error (non critical):", e)
                 print("1M", e)
-                time.sleep(1)
+                await asyncio.sleep(self.SUPER.a)
+            await asyncio.sleep(self.SUPER.a)
 
-            while (self.paused):
-                time.sleep(5)
-            time.sleep(self.SUPER.a * (1 / 2))
-
-        self.shut_down_count += 1
-        if (self.messages): print(self.symbol_ccxt, "Minutes stream succesfully shut down", "\n")
-
-    def stream_5min_candle(self):
-        while (self.stay_alive):
+    async def stream_5min_candle(self):
+        while(self.stay_alive):
             try:
-                data_hour = self.SUPER.exchange.fetchOHLCV(self.symbol_ccxt, timeframe='5m', limit=2)
+                print('[jit')
+                data_hour = await self.exchange_async.fetch_ohlcv(self.symbol_ccxt,timeframe='5m', limit=2)
                 open = data_hour[0][4]
-                close = self.price
+                print(open)
+                close = self.ask
                 self.change5min = ((close - open) / open) * 100
             except ccxt.NetworkError as e:
-                print("5M:",e)
-                time.sleep(1)
-            time.sleep(self.SUPER.a * (1 / 2))
+                print("EN:", e)
+            await asyncio.sleep(self.SUPER.a)
+        await self.exchange_async.close()
 
-        self.shut_down_count += 1
-        if (self.messages): print(self.symbol_ccxt, "5min stream succesfully shut down")
+    async def run_async(self):
+        coroutines = [self.stream_hour_candles(), self.stream_minute_candles(), self.stream_5min_candle()]
+        print('freeman')#TODO remove
+        asyncio.create_task(*coroutines)
+        asyncio.run_forever()
+        #asyncio.gather(*coroutines)
+
+    def run_async_T(self):
+        while(self.ask is None): time.sleep(0.3)
+        print("hello") #TODO remove
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            coroutines = [self.stream_hour_candles(), self.stream_minute_candles(), self.stream_5min_candle()]
+            print('freeman')  # TODO remove
+            asyncio.create_task(*coroutines)
+            asyncio.run_forever()
+        except Exception as e:
+            print(e)
+        finally:
+            loop.close()
 
     # Functions
     def ccxtToUnicorn(self, s):
@@ -344,16 +365,14 @@ class Box:
 
         # Start Streams
         self.t1.start()
+        threading.Thread(name='async_box',target=self.run_async_T).start()
+        print("dmj")
 
         if (self.price is None):
             if(dis): spinner.text = "loading price"
         while (self.price is None):
             time.sleep(1 / 3)
-
-        self.min_candles_Thread.start()
-        self.hr_candles_Thread.start()
-        self.min5_candles_Thread.start()
-
+        print("dmj")
         while (self.change1min is None or self.change1min_PREV is None or self.change1hour is None or self.change5min is None
                     or self.change24hr is None or self.ask is None or self.bid is None):  # TODO check tran
 
@@ -373,14 +392,15 @@ class Box:
                 elif (self.bid is None):
                     spinner.text = "loading tran.bid"
 
-            time.sleep(1 / 3)
-
+            time.sleep(1)
+        print("dmj")
         # End spinner
         if(dis):
             spinner.stop()
-
+        print("dmj")
         self.main_Thread.start()
         self.dat.open()
+        print("dmj")
 
     def purchase(self):
         self.SUPER.pause_others(self.symbol_ccxt)
@@ -551,7 +571,7 @@ class Radar:
         try:
             data_hour = self.SUPER.exchange.fetchOHLCV(symbol_ccxt, timeframe='1w', limit=2)
             open = data_hour[0][4]
-            close = data_hour[1][4]
+            close = data_hour[len(data_hour)-1][4]
 
             change1w = ((close - open) / open) * 100
             return change1w
@@ -599,7 +619,9 @@ class Radar:
                 time.sleep(5)
 
             if (not self.SUPER.in_order):
+                t=time.time() #TODO remove
                 scan_l = self.scan()
+                print('clock->',time.time()-t)#TODO remove
                 if(not scan_l): (scan_l) #TODO remove
 
                 for x in self.SUPER.box_list:
@@ -919,10 +941,28 @@ if __name__ == "__main__":
         # TODO remove
         print(str, len(threading.enumerate()), threading.enumerate())
 
+    def main():
+        display = False
+        if("-s" in sys.argv):
+            display=True
+        elif('-d' in sys.argv):
+            display = False
+        elif('--box_example' in sys.argv):
+            print('jj')
+            man = Manager(display=False)
+            man.run(updater=False)
+            print('nicusr')
+            b = Box(man, "BNB/BTC")
+            b.run()
+            print('jjdubz')
+        else:
+            man = Manager(display=False)
+            man.run(updater=False)
 
-    if("-s" in sys.argv):
-        man = Manager(display=False)
-        man.run()
-    else:
-        man = Manager(display=False)
-        man.run()
+    print('hey')
+    #exchange_async = getattr(ccxt_a, 'binance')({'enableRateLimit': True, 'verbose': False})  # 'verbose': True
+    main()
+
+
+
+
