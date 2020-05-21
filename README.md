@@ -1,6 +1,11 @@
 # Buying low, selling high
 The Simple idea is to buy low and sell high on binance 1 minute candles
 
+## Manager(in_order=False, a=1, mega_markets=None, display=True):
+### run(updater=True)
+
+  -> Activates whole process
+
 ## Radar
 ### update_boxes(): 
 
