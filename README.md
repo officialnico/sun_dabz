@@ -1,5 +1,5 @@
 # Buying low, selling high
-The Simple idea is to buy low and sell high on binance 1 minute candles
+The Simple idea is to buy low and sell high on binance 1 minute candles (checkout the async branch)
 
 ## Manager(in_order=False, a=1, mega_markets=None, display=True):
 ### run(updater=True)
