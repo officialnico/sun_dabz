@@ -17,7 +17,7 @@ colorama==0.4.3
 command-not-found==0.3
 configobj==5.0.6
 constantly==15.1.0
-cryptography==2.9
+cryptography==3.2
 distro-info===0.18ubuntu0.18.04.1
 ec2-hibinit-agent==1.0.0
 Flask==1.1.2
